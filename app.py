@@ -208,7 +208,6 @@ def inicializar_db():
 
   conn.commit()
 
-  # Inserción segura del usuario administrador para evitar errores de índice único
   cursor.execute("SELECT COUNT(*) FROM usuarios WHERE LOWER(usuario) = 'admin'")
   if cursor.fetchone()[0] == 0:
     cursor.execute(
@@ -928,7 +927,7 @@ elif modulo == "📄 Módulo de Cotización":
 
 
 # ==========================================
-# 7. AGENDA DE SERVICIOS (PROGRAMACIÓN)
+# 7. AGENDA DE SERVICIOS (PROGRAMACIÓN - CAMPOS SEPARADOS)
 # ==========================================
 elif modulo == "📅 1. Agenda de Servicios":
   st.title("📅 Agenda de Servicios (Programación)")
@@ -941,13 +940,13 @@ elif modulo == "📅 1. Agenda de Servicios":
     if not df_inmuebles.empty:
       op_inm = df_inmuebles.apply(
           lambda r: (
-              f"ID #{r['inmueble_id']} - {r['cliente']} | {r['tipo_inmueble']}:"
-              f" {r['detalle_ubicacion']}"
+              f"ID #{r['inmueble_id']} — Cliente: {r['cliente']} | Dirección:"
+              f" {r['tipo_inmueble']} ({r['detalle_ubicacion']})"
           ),
           axis=1,
       ).tolist()
       inm_sel = st.selectbox("Seleccione Localidad:", op_inm)
-      inm_id = int(inm_sel.split(" - ")[0].replace("ID #", ""))
+      inm_id = int(inm_sel.split(" — ")[0].replace("ID #", ""))
     else:
       inm_id = None
       st.warning("Registra una localidad primero.")
@@ -990,7 +989,7 @@ elif modulo == "📅 1. Agenda de Servicios":
         cur = conn.cursor()
         cur.execute(
             """
-                INSERT INTO servicios_agenda (inmueble_id, fecha_servicio, recurrencia, trabajo, tecnico_asignado, estado)
+                INSERT INTO servicios_agenda (inmueble_id, fecha_servicio, recurrencia, trabalho, tecnico_asignado, estado)
                 VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
@@ -1016,7 +1015,8 @@ elif modulo == "📅 1. Agenda de Servicios":
   st.divider()
   st.subheader("Trabajos Programados en Agenda")
   df_ag = cargar_datos("""
-        SELECT s.id as agenda_id, s.inmueble_id, c.cliente, i.tipo_inmueble, i.detalle_ubicacion, 
+        SELECT s.id as agenda_id, s.inmueble_id, c.cliente as nombre_cliente, 
+               (i.tipo_inmueble || ' - ' || i.detalle_ubicacion) as direccion_servicio, 
                s.fecha_servicio, s.recurrencia, s.trabajo, s.tecnico_asignado, s.estado
         FROM servicios_agenda s
         JOIN inmuebles i ON s.inmueble_id = i.id
@@ -1027,7 +1027,7 @@ elif modulo == "📅 1. Agenda de Servicios":
 
 
 # ==========================================
-# 8. CONFIRMACIÓN Y CIERRE DE SERVICIOS (CONSULTA PRIMERO POR DEFECTO)
+# 8. CONFIRMACIÓN Y CIERRE DE SERVICIOS
 # ==========================================
 elif modulo == "✅ 2. Confirmación y Cierre de Servicios":
   st.title("✅ Confirmación, Cierre y Consulta de Servicios")
@@ -1047,7 +1047,8 @@ elif modulo == "✅ 2. Confirmación y Cierre de Servicios":
     st.subheader("🔍 Consulta Avanzada del Historial de Servicios")
 
     df_confirmados = cargar_datos("""
-            SELECT sc.id as confirmacion_id, sc.agenda_id, c.cliente, i.tipo_inmueble, i.detalle_ubicacion,
+            SELECT sc.id as confirmacion_id, sc.agenda_id, c.cliente as nombre_cliente, 
+                   (i.tipo_inmueble || ' - ' || i.detalle_ubicacion) as direccion_servicio,
                    sc.status, sc.conduce, sc.fecha_ejecucion, sc.proxima_fumigacion, sc.razon, sc.fecha_reagenda, 
                    s.tecnico_asignado, sc.observaciones
             FROM servicios_confirmados sc
@@ -1156,7 +1157,8 @@ elif modulo == "✅ 2. Confirmación y Cierre de Servicios":
     st.subheader("📋 Listado de Servicios Programados Pendientes")
 
     df_pendientes = cargar_datos("""
-            SELECT s.id as agenda_id, c.cliente, i.tipo_inmueble, i.detalle_ubicacion, 
+            SELECT s.id as agenda_id, c.cliente as nombre_cliente, 
+                   (i.tipo_inmueble || ' - ' || i.detalle_ubicacion) as direccion_servicio, 
                    s.fecha_servicio, s.recurrencia, s.trabajo, s.tecnico_asignado
             FROM servicios_agenda s
             JOIN inmuebles i ON s.inmueble_id = i.id
@@ -1172,9 +1174,9 @@ elif modulo == "✅ 2. Confirmación y Cierre de Servicios":
 
       op_pend = df_pendientes.apply(
           lambda r: (
-              f"Agenda ID #{r['agenda_id']} - {r['cliente']} |"
-              f" {r['tipo_inmueble']} ({r['detalle_ubicacion']}) - Programado"
-              f" para {r['fecha_servicio']}"
+              f"Agenda ID #{r['agenda_id']} — Cliente: {r['nombre_cliente']} |"
+              f" Dirección: {r['direccion_servicio']} (Prog:"
+              f" {r['fecha_servicio']})"
           ),
           axis=1,
       ).tolist()
@@ -1183,7 +1185,7 @@ elif modulo == "✅ 2. Confirmación y Cierre de Servicios":
           "Seleccione el servicio a procesar:", op_pend
       )
       agenda_id_sel = int(
-          sel_agenda_str.split(" - ")[0].replace("Agenda ID #", "")
+          sel_agenda_str.split(" — ")[0].replace("Agenda ID #", "")
       )
 
       row_sel = df_pendientes[
@@ -1257,7 +1259,7 @@ elif modulo == "✅ 2. Confirmación y Cierre de Servicios":
 
           if status_sel == "Realizado":
             if not num_conduce:
-              st.error("El número de conduce es obligatorio para confirmados.")
+              st.error("El número de conduce is obligatorio para confirmados.")
               st.stop()
 
             cur.execute(
@@ -1296,7 +1298,7 @@ elif modulo == "✅ 2. Confirmación y Cierre de Servicios":
             cur.execute(
                 """
                         INSERT INTO servicios_confirmados (agenda_id, status, razon, observaciones)
-                        VALUES (?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, NULL, NULL, NULL)
                     """,
                 (agenda_id_sel, "Cancelado", razon_txt, obs),
             )
@@ -1313,7 +1315,7 @@ elif modulo == "✅ 2. Confirmación y Cierre de Servicios":
             cur.execute(
                 """
                         INSERT INTO servicios_confirmados (agenda_id, status, razon, fecha_reagenda, observaciones)
-                        VALUES (?, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, NULL, NULL)
                     """,
                 (
                     agenda_id_sel,
