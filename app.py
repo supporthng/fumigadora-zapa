@@ -164,8 +164,6 @@ def inicializar_db():
             FOREIGN KEY (inmueble_id) REFERENCES inmuebles (id)
         )
     """)
-
-  # Tabla expandida para soportar Confirmados, Cancelados y Pospuestos
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS servicios_confirmados (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -180,6 +178,16 @@ def inicializar_db():
             FOREIGN KEY (agenda_id) REFERENCES servicios_agenda (id)
         )
     """)
+
+  # Migración automática si la tabla servicios_confirmados ya existía sin las nuevas columnas
+  cursor.execute("PRAGMA table_info(servicios_confirmados)")
+  cols_sc = [col[1] for col in cursor.fetchall()]
+  if "status" not in cols_sc:
+    cursor.execute("ALTER TABLE servicios_confirmados ADD COLUMN status TEXT DEFAULT 'Realizado'")
+  if "razon" not in cols_sc:
+    cursor.execute("ALTER TABLE servicios_confirmados ADD COLUMN razon TEXT")
+  if "fecha_reagenda" not in cols_sc:
+    cursor.execute("ALTER TABLE servicios_confirmados ADD COLUMN fecha_reagenda TEXT")
 
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS facturas (
@@ -1195,7 +1203,6 @@ elif modulo == "✅ 2. Confirmación y Cierre de Servicios":
                     obs,
                 ),
             )
-            # Actualizar agenda con la nueva fecha de reagenda y mantener programado
             cur.execute(
                 """
                         UPDATE servicios_agenda 
@@ -1244,7 +1251,6 @@ elif modulo == "✅ 2. Confirmación y Cierre de Servicios":
           ],
       )
 
-      # Normalizar fechas para filtro
       df_confirmados["fecha_ref"] = pd.to_datetime(
           df_confirmados["fecha_ejecucion"].fillna(
               df_confirmados["fecha_reagenda"]
