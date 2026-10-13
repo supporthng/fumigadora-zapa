@@ -152,8 +152,6 @@ def inicializar_db():
             estado TEXT DEFAULT 'Pendiente'
         )
     """)
-  
-  # Tabla de Agenda (Programación)
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS servicios_agenda (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -166,8 +164,6 @@ def inicializar_db():
             FOREIGN KEY (inmueble_id) REFERENCES inmuebles (id)
         )
     """)
-
-  # Tabla de Confirmación de Servicios (Conduce y Próxima fecha)
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS servicios_confirmados (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -179,7 +175,6 @@ def inicializar_db():
             FOREIGN KEY (agenda_id) REFERENCES servicios_agenda (id)
         )
     """)
-
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS facturas (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -991,8 +986,8 @@ elif modulo == "📅 1. Agenda de Servicios":
         conn.commit()
         conn.close()
         st.success(
-            f"¡Servicio agendado para la Localidad ID #{inm_id} con recurrencia"
-            f" {rec}!"
+            f"¡Servicio agendado para la Localidad ID #{inmueble_id} con"
+            f" recurrencia {rec}!"
         )
         st.rerun()
 
@@ -1010,145 +1005,229 @@ elif modulo == "📅 1. Agenda de Servicios":
 
 
 # ==========================================
-# 8. CONFIRMACIÓN Y CIERRE DE SERVICIOS
+# 8. CONFIRMACIÓN Y CIERRE DE SERVICIOS (CON CONSULTA AVANZADA)
 # ==========================================
 elif modulo == "✅ 2. Confirmación y Cierre de Servicios":
-  st.title("✅ Confirmación y Cierre de Servicios")
+  st.title("✅ Confirmación, Cierre y Consulta de Servicios")
   st.write(
-      "Confirma los servicios realizados ingresando el número de conduce y la"
-      " fecha de la próxima fumigación."
+      "Registra la ejecución real de los servicios y consulta el historial"
+      " mediante filtros de fecha."
   )
 
-  df_pendientes = cargar_datos("""
-        SELECT s.id as agenda_id, c.cliente, i.tipo_inmueble, i.detalle_ubicacion, 
-               s.fecha_servicio, s.trabajo, s.tecnico_asignado, s.recurrencia
-        FROM servicios_agenda s
-        JOIN inmuebles i ON s.inmueble_id = i.id
-        JOIN clientes c ON i.cliente_id = c.id
-        WHERE s.estado = 'Programado'
-    """)
+  tab_conf1, tab_conf2 = st.tabs(
+      ["Confirmar Servicio Pendiente", "Consulta de Servicios Realizados"]
+  )
 
-  if not df_pendientes.empty:
-    with st.form("form_confirmar_servicio"):
-      op_pend = df_pendientes.apply(
-          lambda r: (
-              f"Agenda ID #{r['agenda_id']} - {r['cliente']} |"
-              f" {r['tipo_inmueble']} ({r['detalle_ubicacion']}) - Programado"
-              f" para {r['fecha_servicio']}"
-          ),
-          axis=1,
-      ).tolist()
+  with tab_conf1:
+    df_pendientes = cargar_datos("""
+            SELECT s.id as agenda_id, c.cliente, i.tipo_inmueble, i.detalle_ubicacion, 
+                   s.fecha_servicio, s.trabajo, s.tecnico_asignado, s.recurrencia
+            FROM servicios_agenda s
+            JOIN inmuebles i ON s.inmueble_id = i.id
+            JOIN clientes c ON i.cliente_id = c.id
+            WHERE s.estado = 'Programado'
+        """)
 
-      sel_agenda_str = st.selectbox("Seleccione Servicio Programado:", op_pend)
-      agenda_id_sel = int(
-          sel_agenda_str.split(" - ")[0].replace("Agenda ID #", "")
-      )
+    if not df_pendientes.empty:
+      with st.form("form_confirmar_servicio"):
+        op_pend = df_pendientes.apply(
+            lambda r: (
+                f"Agenda ID #{r['agenda_id']} - {r['cliente']} |"
+                f" {r['tipo_inmueble']} ({r['detalle_ubicacion']}) - Programado"
+                f" para {r['fecha_servicio']}"
+            ),
+            axis=1,
+        ).tolist()
 
-      # Obtener datos de recurrencia del servicio seleccionado
-      row_sel = df_pendientes[
-          df_pendientes["agenda_id"] == agenda_id_sel
-      ].iloc[0]
-      recurrencia_act = row_sel["recurrencia"]
-
-      d_map = {
-          "Semanal": 7,
-          "Quincenal": 15,
-          "Mensual": 30,
-          "Cada 2 meses": 60,
-          "Cada 3 meses": 90,
-          "Cada 6 meses": 180,
-      }
-      dias_rec = d_map.get(recurrencia_act, 30)
-
-      st.markdown("---")
-      col1, col2 = st.columns(2)
-      with col1:
-        num_conduce = st.text_input("Número de Conduce (Confirmación)")
-        fecha_ejec = st.date_input("Fecha Real de Ejecución", value=hoy)
-      with col2:
-        # Calcular fecha sugerida de próxima fumigación
-        sugerencia_prox = fecha_ejec + timedelta(days=dias_rec)
-        fecha_prox = st.date_input(
-            "Fecha de Próxima Fumigación", value=sugerencia_prox
+        sel_agenda_str = st.selectbox(
+            "Seleccione Servicio Programado:", op_pend
+        )
+        agenda_id_sel = int(
+            sel_agenda_str.split(" - ")[0].replace("Agenda ID #", "")
         )
 
-      obs_cierre = st.text_area("Observaciones del Servicio Realizado")
+        row_sel = df_pendientes[
+            df_pendientes["agenda_id"] == agenda_id_sel
+        ].iloc[0]
+        recurrencia_act = row_sel["recurrencia"]
 
-      confirmar_btn = st.form_submit_button(
-          "Confirmar Servicio, Guardar Conduce y Actualizar Próxima Fecha"
+        d_map = {
+            "Semanal": 7,
+            "Quincenal": 15,
+            "Mensual": 30,
+            "Cada 2 meses": 60,
+            "Cada 3 meses": 90,
+            "Cada 6 meses": 180,
+        }
+        dias_rec = d_map.get(recurrencia_act, 30)
+
+        st.markdown("---")
+        col1, col2 = st.columns(2)
+        with col1:
+          num_conduce = st.text_input("Número de Conduce (Confirmación)")
+          fecha_ejec = st.date_input("Fecha Real de Ejecución", value=hoy)
+        with col2:
+          sugerencia_prox = fecha_ejec + timedelta(days=dias_rec)
+          fecha_prox = st.date_input(
+              "Fecha de Próxima Fumigación", value=sugerencia_prox
+          )
+
+        obs_cierre = st.text_area("Observaciones del Servicio Realizado")
+
+        confirmar_btn = st.form_submit_button(
+            "Confirmar Servicio, Guardar Conduce y Actualizar Próxima Fecha"
+        )
+
+        if confirmar_btn:
+          if num_conduce:
+            conn = sqlite3.connect(DB_NAME)
+            cur = conn.cursor()
+
+            cur.execute(
+                """
+                        INSERT INTO servicios_confirmados (agenda_id, conduce, fecha_ejecucion, proxima_fumigacion, observaciones)
+                        VALUES (?, ?, ?, ?, ?)
+                    """,
+                (
+                    agenda_id_sel,
+                    num_conduce,
+                    fecha_ejec.strftime("%Y-%m-%d"),
+                    fecha_prox.strftime("%Y-%m-%d"),
+                    obs_cierre,
+                ),
+            )
+
+            cur.execute(
+                "UPDATE servicios_agenda SET estado = 'Completado' WHERE id ="
+                " ?",
+                (agenda_id_sel,),
+            )
+
+            cur.execute(
+                """
+                        UPDATE inmuebles 
+                        SET ultimo_servicio = ? 
+                        WHERE id = (SELECT inmueble_id FROM servicios_agenda WHERE id = ?)
+                    """,
+                (fecha_ejec.strftime("%Y-%m-%d"), agenda_id_sel),
+            )
+
+            conn.commit()
+            conn.close()
+            st.success(
+                f"¡Servicio confirmado con Conduce #{num_conduce}! Próxima"
+                f" fumigación programada para el {fecha_prox}."
+            )
+            st.rerun()
+          else:
+            st.warning("Por favor ingresa el número de conduce.")
+    else:
+      st.info("No hay servicios programados pendientes de confirmación.")
+
+  with tab_conf2:
+    st.subheader("🔍 Consulta Avanzada de Servicios Confirmados")
+
+    df_confirmados = cargar_datos("""
+            SELECT sc.id as confirmacion_id, sc.agenda_id, c.cliente, i.tipo_inmueble, i.detalle_ubicacion,
+                   sc.conduce, sc.fecha_ejecucion, sc.proxima_fumigacion, s.tecnico_asignado, sc.observaciones
+            FROM servicios_confirmados sc
+            JOIN servicios_agenda s ON sc.agenda_id = s.id
+            JOIN inmuebles i ON s.inmueble_id = i.id
+            JOIN clientes c ON i.cliente_id = c.id
+        """)
+
+    if not df_confirmados.empty:
+      df_confirmados["fecha_ejecucion"] = pd.to_datetime(
+          df_confirmados["fecha_ejecucion"]
+      ).dt.date
+
+      filtro_tiempo = st.selectbox(
+          "Filtrar por período:",
+          [
+              "Todos",
+              "Hoy",
+              "Ayer",
+              "Semana Actual",
+              "Última Semana (7 días)",
+              "Este Mes",
+              "Mes Anterior",
+              "Hace Dos Meses",
+              "Hace Tres Meses",
+              "Seleccione Rango de Fecha",
+          ],
       )
 
-      if confirmar_btn:
-        if num_conduce:
-          conn = sqlite3.connect(DB_NAME)
-          cur = conn.cursor()
+      f_inicio = hoy
+      f_fin = hoy
 
-          # Registrar en servicios confirmados
-          cur.execute(
-              """
-                    INSERT INTO servicios_confirmados (agenda_id, conduce, fecha_ejecucion, proxima_fumigacion, observaciones)
-                    VALUES (?, ?, ?, ?, ?)
-                """,
-              (
-                  agenda_id_sel,
-                  num_conduce,
-                  fecha_ejec.strftime("%Y-%m-%d"),
-                  fecha_prox.strftime("%Y-%m-%d"),
-                  obs_cierre,
-              ),
-          )
-
-          # Actualizar estado en agenda a 'Completado'
-          cur.execute(
-              "UPDATE servicios_agenda SET estado = 'Completado' WHERE id = ?",
-              (agenda_id_sel,),
-          )
-
-          # Actualizar último servicio en la tabla inmuebles para reflejar el ciclo nuevo
-          cur.execute(
-              """
-                    UPDATE inmuebles 
-                    SET ultimo_s = ? 
-                    WHERE id = (SELECT inmueble_id FROM servicios_agenda WHERE id = ?)
-                """,
-              (fecha_ejec.strftime("%Y-%m-%d"), agenda_id_sel),
-          )
-          # Nota: actualizamos la columna ultimo_servicio según corresponda en la base de datos
-          cur.execute(
-              """
-                    UPDATE inmuebles 
-                    SET ultimo_servicio = ? 
-                    WHERE id = (SELECT inmueble_id FROM servicios_agenda WHERE id = ?)
-                """,
-              (fecha_ejec.strftime("%Y-%m-%d"), agenda_id_sel),
-          )
-
-          conn.commit()
-          conn.close()
-          st.success(
-              f"¡Servicio confirmado con Conduce #{num_conduce}! Próxima"
-              f" fumigación programada para el {fecha_prox}."
-          )
-          st.rerun()
+      if filtro_tiempo == "Hoy":
+        df_filtrado = df_confirmados[
+            df_confirmados["fecha_ejecucion"] == hoy
+        ]
+      elif filtro_tiempo == "Ayer":
+        ayer = hoy - timedelta(days=1)
+        df_filtrado = df_confirmados[
+            df_confirmados["fecha_ejecucion"] == ayer
+        ]
+      elif filtro_tiempo == "Semana Actual":
+        inicio_semana = hoy - timedelta(days=hoy.weekday())
+        df_filtrado = df_confirmados[
+            (df_confirmados["fecha_ejecucion"] >= inicio_semana)
+            & (df_confirmados["fecha_ejecucion"] <= hoy)
+        ]
+      elif filtro_tiempo == "Última Semana (7 días)":
+        hace_7_dias = hoy - timedelta(days=7)
+        df_filtrado = df_confirmados[
+            (df_confirmados["fecha_ejecucion"] >= hace_7_dias)
+            & (df_confirmados["fecha_ejecucion"] <= hoy)
+        ]
+      elif filtro_tiempo == "Este Mes":
+        inicio_mes = hoy.replace(day=1)
+        df_filtrado = df_confirmados[
+            (df_confirmados["fecha_ejecucion"] >= inicio_mes)
+            & (df_confirmados["fecha_ejecucion"] <= hoy)
+        ]
+      elif filtro_tiempo == "Mes Anterior":
+        mes_pasado_fin = hoy.replace(day=1) - timedelta(days=1)
+        mes_pasado_inicio = mes_pasado_fin.replace(day=1)
+        df_filtrado = df_confirmados[
+            (df_confirmados["fecha_ejecucion"] >= mes_pasado_inicio)
+            & (df_confirmados["fecha_ejecucion"] <= mes_pasado_fin)
+        ]
+      elif filtro_tiempo == "Hace Dos Meses":
+        hace_2m_fin = (hoy.replace(day=1) - timedelta(days=1)).replace(day=1) - timedelta(days=1)
+        hace_2m_inicio = hace_2m_fin.replace(day=1)
+        df_filtrado = df_confirmados[
+            (df_confirmados["fecha_ejecucion"] >= hace_2m_inicio)
+            & (df_confirmados["fecha_ejecucion"] <= hace_2m_fin)
+        ]
+      elif filtro_tiempo == "Hace Tres Meses":
+        hace_3m_fin = ((hoy.replace(day=1) - timedelta(days=1)).replace(day=1) - timedelta(days=1)).replace(day=1) - timedelta(days=1)
+        hace_3m_inicio = hace_3m_fin.replace(day=1)
+        df_filtrado = df_confirmados[
+            (df_confirmados["fecha_ejecucion"] >= hace_3m_inicio)
+            & (df_confirmados["fecha_ejecucion"] <= hace_3m_fin)
+        ]
+      elif filtro_tiempo == "Seleccione Rango de Fecha":
+        rango = st.date_input(
+            "Seleccione el rango (Inicio - Fin):",
+            value=(hoy - timedelta(days=30), hoy),
+        )
+        if isinstance(rango, tuple) and len(rango) == 2:
+          f_inicio, f_fin = rango
+          df_filtrado = df_confirmados[
+              (df_confirmados["fecha_ejecucion"] >= f_inicio)
+              & (df_confirmados["fecha_ejecucion"] <= f_fin)
+          ]
         else:
-          st.warning("Por favor ingresa el número de conduce.")
-  else:
-    st.info("No hay servicios programados pendientes de confirmación.")
+          df_filtrado = df_confirmados
+      else:
+        df_filtrado = df_confirmados
 
-  st.divider()
-  st.subheader("Historial de Servicios Confirmados (Conduces Emitidos)")
-  df_confirmados = cargar_datos("""
-        SELECT sc.id as confirmacion_id, sc.agenda_id, c.cliente, i.tipo_inmueble, i.detalle_ubicacion,
-               sc.conduce, sc.fecha_ejecucion, sc.proxima_fumigacion, s.tecnico_asignado, sc.observaciones
-        FROM servicios_confirmados sc
-        JOIN servicios_agenda s ON sc.agenda_id = s.id
-        JOIN inmuebles i ON s.inmueble_id = i.id
-        JOIN clientes c ON i.cliente_id = c.id
-    """)
-  if not df_confirmados.empty:
-    st.dataframe(df_confirmados, use_container_width=True)
-  else:
-    st.info("Aún no hay servicios confirmados en el historial.")
+      st.markdown(f"📊 **Resultados encontrados:** {len(df_filtrado)} servicios")
+      st.dataframe(df_filtrado, use_container_width=True)
+    else:
+      st.info("Aún no hay servicios confirmados en el historial.")
 
 
 # ==========================================
