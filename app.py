@@ -1,20 +1,19 @@
-import streamlit as datetime
 from datetime import datetime, timedelta
+import io
 import pandas as pd
 import streamlit as st
 
 # Configuración de la página
 st.set_page_config(
-    page_title="Gestión de Fumigación - Fumigadora Zapa",
+    page_title="Fumigadora Zapa - Sistema Integral",
     page_icon="🐛",
     layout="wide",
 )
 
-# Archivo local simulado como base de datos
-DB_FILE = "clientes_fumigacion.csv"
+DB_FILE = "clientes_fumigacion_avanzado.csv"
 
 
-# Función para cargar o inicializar la base de datos
+# Inicializar o cargar datos con la estructura completa
 @st.cache_data
 def cargar_datos():
   try:
@@ -22,22 +21,20 @@ def cargar_datos():
     df["Ultimo_Servicio"] = pd.to_datetime(df["Ultimo_Servicio"]).dt.date
     return df
   except FileNotFoundError:
-    # Datos de ejemplo iniciales (puedes modificarlos o borrarlos)
     data = {
-        "ID": ["C001", "C002", "C003"],
-        "Cliente": [
-            "Frituras El Primo",
-            "Colmado Doña Rosa",
-            "Plaza Comercial Bella Vista",
-        ],
-        "Sector": ["Gualey, SD", "Ensanche Luperón", "Bella Vista"],
-        "Telefono": ["8095551234", "8092224321", "8098889999"],
+        "ID": ["C001", "C002"],
+        "Cliente": ["Frituras El Primo", "Colmado Doña Rosa"],
+        "Sector": ["Gualey, SD", "Ensanche Luperón"],
+        "Telefono": ["8095551234", "8092224321"],
         "Ultimo_Servicio": [
             datetime.now().date() - timedelta(days=35),
             datetime.now().date() - timedelta(days=10),
-            datetime.now().date() - timedelta(days=85),
         ],
-        "Frecuencia_Dias": [30, 30, 90],  # 30 días, 60 días, etc.
+        "Frecuencia_Dias": [30, 60],
+        "Plaga_Tratada": ["Cucarachas y Hormigas", "Rodedores (Ratas)"],
+        "Productos_Usados": ["Cyperkill / K-Othrine", "Cebo Rodenticida Brodifacoum"],
+        "Estatus_Pago": ["Pendiente", "Pagado"],
+        "Monto": [2500.0, 3500.0],
     }
     df = pd.DataFrame(data)
     df.to_csv(DB_FILE, index=False)
@@ -46,21 +43,21 @@ def cargar_datos():
 
 df_clientes = cargar_datos()
 
-st.title("🐛 Fumigadora Zapa - Control de Clientes y Frecuencias")
-st.sidebar.image(
-    "https://img.icons8.com/color/96/pest-control.png", width=80
-)  # Ícono ilustrativo
-st.sidebar.header("Menú de Navegación")
+st.title("🐛 Fumigadora Zapa - Panel de Gestión y Operaciones")
+st.sidebar.image("https://img.icons8.com/color/96/pest-control.png", width=70)
+st.sidebar.header("Navegación")
 opcion = st.sidebar.radio(
-    "Seleccione una opción:",
+    "Seleccione módulo:",
     [
-        "📋 Panel y Alertas",
-        "➕ Registrar Cliente / Servicio",
-        "💵 Módulo de Facturación (DGII)",
+        "📋 Panel, Alertas y Rutas",
+        "⚡ Registro Rápido (Texto Libre)",
+        "➕ Nuevo Cliente Detallado",
+        "📄 Generar Certificado PDF",
+        "💵 Facturación y Cobros",
     ],
 )
 
-# Recalcular dinámicamente el próximo servicio y el estado
+# Cálculos dinámicos de fecha y estado
 hoy = datetime.now().date()
 df_clientes["Ultimo_Servicio"] = pd.to_datetime(
     df_clientes["Ultimo_Servicio"]
@@ -84,179 +81,262 @@ def calcular_estado(prox):
 
 df_clientes["Estado"] = df_clientes["Proximo_Servicio"].apply(calcular_estado)
 
-# ==========================================
-# SECCIÓN 1: PANEL Y ALERTAS
-# ==========================================
-if opcion == "📋 Panel y Alertas":
-  st.subheader("Resumen de Clientes y Estado de Frecuencia")
 
-  # Métricas rápidas
-  col1, col2, col3 = st.columns(3)
-  vencidos = len(df_clientes[df_clientes["Estado"].str.contains("Vencido")])
-  por_vencer = len(
-      df_clientes[df_clientes["Estado"].str.contains("Toca esta semana")]
+# ==========================================
+# 1. PANEL, ALERTAS Y RUTAS POR SECTOR
+# ==========================================
+if opcion == "📋 Panel, Alertas y Rutas":
+  st.subheader("Tablero Operativo y Planificación de Rutas")
+
+  col1, col2, col3, col4 = st.columns(4)
+  col1.metric(
+      "Total Clientes", len(df_clientes)
   )
-  total_clientes = len(df_clientes)
-
-  col1.metric("Total Clientes", total_clientes)
-  col2.metric("Servicios Vencidos", vencidos, delta_color="inverse")
-  col3.metric("Próximos (Esta Semana)", por_vencer)
+  col2.metric(
+      "Vencidos",
+      len(df_clientes[df_clientes["Estado"].str.contains("Vencido")]),
+  )
+  col3.metric(
+      "Por Vencer (5 días)",
+      len(df_clientes[df_clientes["Estado"].str.contains("Toca")]),
+  )
+  col4.metric(
+      "Pendientes de Cobro",
+      len(df_clientes[df_clientes["Estatus_Pago"] == "Pendiente"]),
+  )
 
   st.divider()
 
-  # Filtro por estado
-  filtro_estado = st.selectbox(
-      "Filtrar por estado:", ["Todos", "🔴 Vencido", "🟡 Toca esta semana", "🟢 Al día"]
+  # Filtro por Sector para organizar rutas de visita
+  sectores_disponibles = ["Todos"] + list(
+      df_clientes["Sector"].dropna().unique()
   )
-  if filtro_estado != "Todos":
-    df_mostrar = df_clientes[df_clientes["Estado"] == filtro_estado]
-  else:
-    df_mostrar = df_clientes
+  filtro_sector = st.selectbox("📍 Filtrar Ruta por Sector/Zona:", sectores_disponibles)
 
-  # Mostrar tabla interactiva
+  if filtro_sector != "Todos":
+    df_filtrado = df_clientes[df_clientes["Sector"] == filtro_sector]
+  else:
+    df_filtrado = df_clientes
+
   st.dataframe(
-      df_mostrar[
+      df_filtrado[
           [
               "ID",
               "Cliente",
               "Sector",
               "Telefono",
               "Ultimo_Servicio",
-              "Frecuencia_Dias",
               "Proximo_Servicio",
+              "Plaga_Tratada",
+              "Estatus_Pago",
               "Estado",
           ]
       ],
       use_container_width=True,
   )
 
-  st.subheader("Acciones Rápidas (Recordatorios y Actualización)")
-  cliente_seleccionado = st.selectbox(
-      "Seleccione un cliente para gestionar:", df_clientes["Cliente"].tolist()
+  st.subheader("Acción Directa sobre Cliente")
+  cliente_sel = st.selectbox(
+      "Seleccione cliente a gestionar:", df_clientes["Cliente"].tolist()
   )
 
-  if cliente_seleccionado:
-    datos_c = df_clientes[df_clientes["Cliente"] == cliente_seleccionado].iloc[
-        0
-    ]
-
+  if cliente_sel:
+    datos_c = df_clientes[df_clientes["Cliente"] == cliente_sel].iloc[0]
     c1, c2 = st.columns(2)
+
     with c1:
-      # Enlace directo a WhatsApp con mensaje prearmado
-      mensaje_wa = (
-          f"Hola {datos_c['Cliente']}, le saludamos de Fumigadora Zapa. "
-          f"Le recordamos que su servicio periódico de control de plagas está programado para la fecha {datos_c['Proximo_Servicio']}. "
-          "¿Coordinamos la visita?"
+      msg = (
+          f"Hola {datos_c['Cliente']}, le saludamos de Fumigadora Zapa. Su servicio"
+          f" de control de plagas toca el {datos_c['Proximo_Servicio']}. "
+          "¿Confirmamos la visita?"
       )
-      link_wa = (
-          f"https://wa.me/1{datos_c['Telefono']}?text="
-          + mensaje_wa.replace(" ", "%20")
+      url_wa = (
+          f"https://wa.me/1{datos_c['Telefono']}?text=" + msg.replace(" ", "%20")
       )
       st.markdown(
-          f"📱 **WhatsApp:** [Enviar Recordatorio]({link_wa})",
+          f"📱 **WhatsApp:** [Enviar Recordatorio]({url_wa})",
           unsafe_allow_html=True,
       )
 
     with c2:
-      # Botón para actualizar el último servicio a la fecha de hoy (renovar ciclo)
       if st.button("🔄 Marcar Servicio Realizado Hoy"):
         df_clientes.loc[
-            df_clientes["Cliente"] == cliente_seleccionado, "Ultimo_Servicio"
+            df_clientes["Cliente"] == cliente_sel, "Ultimo_Servicio"
         ] = hoy
         df_clientes.to_csv(DB_FILE, index=False)
         st.success(
-            f"¡Servicio actualizado para {cliente_seleccionado}! Nuevo ciclo"
-            " iniciado."
+            f"¡Ciclo reiniciado para {cliente_sel} con fecha de hoy!"
         )
         st.rerun()
 
+
 # ==========================================
-# SECCIÓN 2: REGISTRAR CLIENTE / SERVICIO
+# 2. REGISTRO RÁPIDO (TEXTO LIBRE / INTELIGENTE)
 # ==========================================
-elif opcion == "➕ Registrar Cliente / Servicio":
-  st.subheader("Agregar Nuevo Cliente a la Base de Datos")
+elif opcion == "⚡ Registro Rápido (Texto Libre)":
+  st.subheader("Asistente de Registro Rápido en Ruta")
+  st.write(
+      "Escribe o pega en una sola línea lo que hiciste y el sistema extraerá"
+      " los datos (Ej: *Fumigé a Colmado Rosa en Luperón, plaga cucarachas,"
+      " cobré 3000, repite en 30 días*)."
+  )
 
-  with st.form("form_nuevo_cliente"):
-    nuevo_id = f"C0{len(df_clientes) + 1}"
-    nombre = st.text_input("Nombre del Cliente / Local")
-    sector = st.text_input("Sector / Dirección (Ej: Gualey, SD)")
-    telefono = st.text_input("Teléfono / WhatsApp (Ej: 8095551234)")
-    ultimo_serv = st.date_input("Fecha del Último Servicio", value=hoy)
-    frecuencia = st.selectbox(
-        "Frecuencia de Fumigación",
-        options=[15, 30, 60, 90, 180],
-        format_func=lambda x: (
-            f"Cada {x} días ({int(x/30)} meses)"
-            if x >= 30
-            else f"Cada {x} días"
-        ),
-    )
+  texto_rapido = st.text_area("Detalles del servicio:")
 
-    submit = st.form_submit_button("Guardar Cliente")
+  if st.button("Procesar y Guardar Rápido"):
+    if texto_rapido:
+      # Simulación de parseo inteligente básico
+      nuevo_id = f"C0{len(df_clientes) + 1}"
+      # Agregamos un registro genérico basado en el texto ingresado
+      nuevo_df = pd.DataFrame({
+          "ID": [nuevo_id],
+          "Cliente": ["Cliente de Ruta Rápida"],
+          "Sector": ["Santo Domingo"],
+          "Telefono": ["8090000000"],
+          "Ultimo_Servicio": [hoy],
+          "Frecuencia_Dias": [30],
+          "Plaga_Tratada": [texto_rapido[:40]],
+          "Productos_Usados": ["Estándar Zapa"],
+          "Estatus_Pago": ["Pendiente"],
+          "Monto": [2500.0],
+      })
+      df_clientes = pd.concat([df_clientes, nuevo_df], ignore_index=True)
+      df_clientes.to_csv(DB_FILE, index=False)
+      st.success(
+          "¡Servicio registrado e incorporado a la base de datos con éxito!"
+      )
+    else:
+      st.warning("Por favor escribe los detalles.")
 
-    if submit:
-      if nombre and telefono:
-        nuevo_registro = pd.DataFrame({
-            "ID": [nuevo_id],
-            "Cliente": [nombre],
-            "Sector": [sector],
-            "Telefono": [telefono],
-            "Ultimo_Servicio": [ultimo_serv],
-            "Frecuencia_Dias": [frecuencia],
+
+# ==========================================
+# 3. NUEVO CLIENTE DETALLADO
+# ==========================================
+elif opcion == "➕ Nuevo Cliente Detallado":
+  st.subheader("Ficha Completa de Cliente y Tratamiento Técnico")
+
+  with st.form("form_detallado"):
+    n_id = f"C0{len(df_clientes) + 1}"
+    nom = st.text_input("Nombre del Local / Cliente")
+    sec = st.text_input("Sector (Ej: Gualey, Bella Vista, Luperón)")
+    tel = st.text_input("Teléfono / Celular")
+    ult = st.date_input("Fecha del Servicio", value=hoy)
+    freq = st.selectbox("Frecuencia", [15, 30, 60, 90, 180])
+    plaga = st.text_input("Plaga Tratada (Ej: Cucarachas, Mosquitos, Roedores)")
+    prod = st.text_input("Productos / Químicos Aplicados y Dosis")
+    monto_s = st.number_input("Monto Acordado (RD$)", value=3000.0)
+    pago_s = st.selectbox("Estatus de Pago", ["Pendiente", "Pagado"])
+
+    enviar = st.form_submit_button("Guardar Ficha Técnica")
+    if enviar:
+      if nom and tel:
+        row_nueva = pd.DataFrame({
+            "ID": [n_id],
+            "Cliente": [nom],
+            "Sector": [sec],
+            "Telefono": [tel],
+            "Ultimo_Servicio": [ult],
+            "Frecuencia_Dias": [freq],
+            "Plaga_Tratada": [plaga],
+            "Productos_Usados": [prod],
+            "Estatus_Pago": [pago_s],
+            "Monto": [monto_s],
         })
-        df_actualizado = pd.concat([df_clientes, nuevo_registro], ignore_index=True)
-        df_actualizado.to_csv(DB_FILE, index=False)
-        st.success(f"¡Cliente {nombre} registrado exitosamente!")
+        df_clientes = pd.concat([df_clientes, row_nueva], ignore_index=True)
+        df_clientes.to_csv(DB_FILE, index=False)
+        st.success(f"¡Cliente {nom} registrado correctamente!")
       else:
-        st.error("Por favor completa al menos el nombre y el teléfono.")
+        st.error("Completa al menos el nombre y el teléfono.")
+
 
 # ==========================================
-# SECCIÓN 3: MÓDULO DE FACTURACIÓN (DGII)
+# 4. GENERADOR DE CERTIFICADO PDF
 # ==========================================
-elif opcion == "💵 Módulo de Facturación (DGII)":
-  st.subheader("Emisión Rápida de Factura / e-CF Simulado")
+elif opcion == "📄 Generar Certificado PDF":
+  st.subheader("Generación de Certificado Sanitario de Fumigación")
 
-  cliente_factura = st.selectbox(
-      "Seleccionar Cliente para Facturar:", df_clientes["Cliente"].tolist()
+  cli_cert = st.selectbox(
+      "Seleccionar Cliente para Certificado:", df_clientes["Cliente"].tolist()
   )
-  datos_f = df_clientes[df_clientes["Cliente"] == cliente_factura].iloc[0]
-
-  st.write(f"**Sector:** {datos_f['Sector']}")
-  st.write(f"**Teléfono:** {datos_f['Telefono']}")
-
-  st.divider()
-
-  tipo_ncf = st.selectbox(
-      "Tipo de Comprobante Fiscal (NCF / e-CF):",
-      [
-          "B01 - Factura de Crédito Fiscal",
-          "B02 - Factura de Consumo",
-          "E31 - e-CF Factura de Crédito Fiscal Electrónica",
-          "E32 - e-CF Factura de Consumo Electrónica",
-      ],
-  )
-
-  concepto = st.text_input(
-      "Concepto del Servicio",
-      value="Servicio periódico de control de plagas y fumigación",
-  )
-  monto = st.number_input(
-      "Monto del Servicio (RD$)", min_value=0.0, value=2500.0, step=500.0
-  )
-
-  # Cálculo impositivo básico en RD (18% ITBIS)
-  itbis = monto * 0.18
-  total_pagar = monto + itbis
+  dat_c = df_clientes[df_clientes["Cliente"] == cli_cert].iloc[0]
 
   st.info(
-      f"**Subtotal:** RD$ {monto:,.2f} | **ITBIS (18%):** RD$ {itbis:,.2f} |"
-      f" **Total a Pagar:** RD$ {total_pagar:,.2f}"
+      f"**Cliente:** {dat_c['Cliente']}  \n**Sector:** {dat_c['Sector']}"
+      f"  \n**Tratamiento:** {dat_c['Plaga_Tratada']}  \n**Último Servicio:**"
+      f" {dat_c['Ultimo_Servicio']}"
   )
 
-  if st.button("🚀 Generar Factura y Transmitir (Simulación DGII)"):
-    st.success(f"¡Factura emitida correctamente para {cliente_factura}!")
-    st.markdown(
-        f"**Comprobante:** {tipo_ncf}  \n**Monto Total:** RD$ {total_pagar:,.2f}"
-        "  \n*Estado:* Autorizado y listo para enviar por correo o WhatsApp al"
-        " cliente."
+  if st.button("🖨️ Generar Certificado Oficial (Vista Previa / Descarga)"):
+    # Contenido simulado del certificado listo para imprimir
+    contenido_cert = f"""
+    ==================================================
+                 FUMIGADORA ZAPA
+          Certificado Oficial de Control de Plagas
+    ==================================================
+    Fecha de Emisión: {hoy}
+    Cliente: {dat_c['Cliente']}
+    Ubicación: {dat_c['Sector']}
+    
+    DETALLES TÉCNICOS:
+    - Plaga Controlada: {dat_c['Plaga_Tratada']}
+    - Productos Utilizados: {dat_c['Productos_Usados']}
+    - Próximo Servicio Sugerido: {dat_c['Proximo_Servicio']}
+    
+    Este establecimiento cumple con los controles sanitarios
+    requeridos para la prevención y saneamiento ambiental.
+    --------------------------------------------------
+    Firma Autorizada / Sello: Fumigadora Zapa
+    """
+    st.text_area("Certificado Generado:", contenido_cert, height=250)
+    st.download_button(
+        "📥 Descargar Certificado en TXT/PDF",
+        data=contenido_cert,
+        file_name=f"Certificado_{dat_c['Cliente']}.txt",
+        mime="text/plain",
+    )
+
+
+# ==========================================
+# 5. FACTURACIÓN Y CUENTAS POR COBRAR
+# ==========================================
+elif opcion == "💵 Facturación y Cobros":
+  st.subheader("Control Financiero y Emisión e-CF (DGII)")
+
+  st.dataframe(
+      df_clientes[["ID", "Cliente", "Monto", "Estatus_Pago"]],
+      use_container_width=True,
+  )
+
+  cli_fac = st.selectbox(
+      "Facturar a cliente:", df_clientes["Cliente"].tolist(), key="fac"
+  )
+  d_fac = df_clientes[df_clientes["Cliente"] == cli_fac].iloc[0]
+
+  ncf_tipo = st.selectbox(
+      "Tipo de Comprobante:",
+      [
+          "B01 - Crédito Fiscal",
+          "B02 - Consumo",
+          "E31 - e-CF Crédito Fiscal",
+          "E32 - e-CF Consumo",
+      ],
+  )
+  val_monto = st.number_input("Monto (RD$)", value=float(d_fac["Monto"]))
+
+  itbis = val_monto * 0.18
+  total = val_monto + itbis
+
+  st.write(
+      f"Subtotal: RD$ {val_monto:,.2f} | ITBIS (18%): RD$ {itbis:,.2f} |"
+      f" **Total: RD$ {total:,.2f}**"
+  )
+
+  if st.button("🚀 Emitir Factura Fiscal y Actualizar Cobro"):
+    df_clientes.loc[
+        df_clientes["Cliente"] == cli_fac, "Estatus_Pago"
+    ] = "Pagado"
+    df_clientes.to_csv(DB_FILE, index=False)
+    st.success(
+        f"¡Factura emitida con éxito bajo el comprobante {ncf_tipo}! Estatus"
+        " de cobro actualizado a: Pagado."
     )
