@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import io
 import sqlite3
 import pandas as pd
 import streamlit as st
@@ -70,7 +71,7 @@ def inicializar_db():
         )
     """)
 
-  # 2. NUEVA TABLA: Técnicos de Campo
+  # 2. Técnicos de Campo
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS tecnicos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -181,8 +182,20 @@ def inicializar_db():
             VALUES (?, ?, ?, ?, ?)
         """,
         [
-            ("Juan Pérez", "8091112233", "Fumigación General", "Santo Domingo Este", "Activo"),
-            ("Carlos Gómez", "8094445566", "Control de Roedores", "Distrito Nacional", "Activo"),
+            (
+                "Juan Pérez",
+                "8091112233",
+                "Fumigación General",
+                "Santo Domingo Este",
+                "Activo",
+            ),
+            (
+                "Carlos Gómez",
+                "8094445566",
+                "Control de Roedores",
+                "Distrito Nacional",
+                "Activo",
+            ),
         ],
     )
 
@@ -377,7 +390,7 @@ modulo = st.sidebar.radio(
         "📄 Módulo de Cotización",
         "📅 Módulo de Gestión de Servicios (Agenda)",
         "💵 Módulo de Facturación (DGII)",
-        "⚙️ Módulo de Configuración (Usuarios)",
+        "⚙️ Módulo de Configuración (Usuarios & Datos)",
     ],
     label_visibility="collapsed",
 )
@@ -737,8 +750,6 @@ elif modulo == "📅 Módulo de Gestión de Servicios (Agenda)":
     trab = st.selectbox(
         "Trabajo:", df_servicios_cat["nombre_servicio"].tolist()
     )
-
-    # Selección del técnico utilizando la nueva tabla de técnicos
     lista_tecnicos_reg = (
         df_tecnicos["nombre_tecnico"].tolist()
         if not df_tecnicos.empty
@@ -860,37 +871,114 @@ elif modulo == "💵 Módulo de Facturación (DGII)":
 
 
 # ==========================================
-# 8. MÓDULO DE CONFIGURACIÓN (USUARIOS)
+# 8. MÓDULO DE CONFIGURACIÓN (USUARIOS & DATOS)
 # ==========================================
-elif modulo == "⚙️ Módulo de Configuración (Usuarios)":
-  st.title("⚙️ Módulo de Configuración y Usuarios")
-  st.write("Administración de credenciales, roles y accesos al sistema.")
-  st.dataframe(df_usuarios[["id", "usuario", "rol"]], use_container_width=True)
+elif modulo == "⚙️ Módulo de Configuración (Usuarios & Datos)":
+  st.title("⚙️ Configuración, Gestión de Usuarios y Datos Masivos")
+  st.write(
+      "Administración de accesos y carga masiva de datos mediante Excel."
+  )
 
-  if st.session_state.rol == "Administrador":
-    with st.form("form_usr"):
-      st.subheader("Crear Nuevo Usuario")
-      nu = st.text_input("Nombre de Usuario")
-      ro = st.selectbox("Rol", ["Administrador", "Técnico"])
-      pi = st.text_input("PIN o Contraseña", type="password")
+  tab_cfg1, tab_cfg2 = st.tabs(
+      ["Gestión de Datos (Excel)", "Usuarios del Sistema"]
+  )
 
-      if st.form_submit_button("Crear Usuario"):
-        if nu and pi:
-          conn = sqlite3.connect(DB_NAME)
-          cur = conn.cursor()
-          try:
-            cur.execute(
-                "INSERT INTO usuarios (usuario, rol, pin) VALUES (?, ?, ?)",
-                (nu, ro, pi),
-            )
-            conn.commit()
-            st.success(f"¡Usuario {nu} creado con éxito!")
-            st.rerun()
-          except sqlite3.IntegrityError:
-            st.error("Ese usuario ya existe.")
-          finally:
-            conn.close()
-  else:
-    st.info(
-        "Se requieren permisos de Administrador para crear nuevos usuarios."
+  with tab_cfg1:
+    st.subheader(
+        "📥 Importación Masiva de Datos (Excel / CSV)"
     )
+    st.write(
+        "Sube un archivo Excel para alimentar automáticamente las tablas del"
+        " sistema."
+    )
+
+    tipo_destino = st.selectbox(
+        "Seleccione la tabla de destino:",
+        [
+            "Clientes",
+            "Productos / Inventario",
+            "Catálogo de Servicios",
+            "Técnicos",
+        ],
+    )
+
+    archivo_subido = st.file_uploader(
+        "Sube tu archivo Excel (.xlsx o .csv)", type=["xlsx", "csv"]
+    )
+
+    if archivo_subido is not None:
+      try:
+        if archivo_subido.name.endswith(".csv"):
+          df_subido = pd.read_csv(archivo_subido)
+        else:
+          df_subido = pd.read_excel(archivo_subido)
+
+        st.markdown("---")
+        st.write("🔍 **Vista previa de los datos detectados:**")
+        st.dataframe(df_subido.head(), use_container_width=True)
+
+        if st.button("🚀 Procesar e Insertar Datos en la Base de Datos"):
+          conn = sqlite3.connect(DB_NAME)
+
+          if tipo_destino == "Clientes":
+            # Espera columnas: cliente, sector, telefono
+            df_subido.to_sql("clientes", conn, if_exists="append", index=False)
+          elif tipo_destino == "Productos / Inventario":
+            # Espera columnas: nombre_producto, categoria, stock, unidad, precio
+            df_subido.to_sql("productos", conn, if_exists="append", index=False)
+          elif tipo_destino == "Catálogo de Servicios":
+            # Espera columnas: nombre_servicio, descripcion, precio_base
+            df_subido.to_sql(
+                "catalogo_servicios", conn, if_exists="append", index=False
+            )
+          elif tipo_destino == "Técnicos":
+            # Espera columnas: nombre_tecnico, telefono, especialidad, zona, estado
+            df_subido.to_sql("tecnicos", conn, if_exists="append", index=False)
+
+          conn.close()
+          st.success(
+              "¡Datos importados y guardados en la base de datos con éxito!"
+          )
+          st.rerun()
+
+      except Exception as e:
+        st.error(
+            f"Ocurrió un error al procesar el archivo. Verifica que las"
+            f" columnas coincidan. Detalle: {e}"
+        )
+
+  with tab_cfg2:
+    st.subheader("Control de Accesos y Permisos")
+    st.dataframe(
+        df_usuarios[["id", "usuario", "rol"]], use_container_width=True
+    )
+
+    if st.session_state.rol == "Administrador":
+      with st.form("form_usr"):
+        st.subheader("Crear Nuevo Usuario de Sistema")
+        nu = st.text_input("Nombre de Usuario")
+        ro = st.selectbox("Rol", ["Administrador", "Técnico"])
+        pi = st.text_input("PIN o Contraseña", type="password")
+
+        if st.form_submit_button("Crear Usuario"):
+          if nu and pi:
+            conn = sqlite3.connect(DB_NAME)
+            cur = conn.cursor()
+            try:
+              cur.execute(
+                  "INSERT INTO usuarios (usuario, rol, pin) VALUES (?, ?, ?)",
+                  (nu, ro, pi),
+              )
+              conn.commit()
+              st.success(f"¡Usuario {nu} creado con éxito!")
+              st.rerun()
+            except sqlite3.IntegrityError:
+              st.error("Ese usuario ya existe.")
+            finally:
+              conn.close()
+          else:
+            st.warning("Completa todos los campos.")
+    else:
+      st.info(
+          "Se requieren permisos de Administrador para crear nuevos usuarios."
+      )
