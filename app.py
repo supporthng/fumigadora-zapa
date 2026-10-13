@@ -70,12 +70,13 @@ def inicializar_db():
 
   conn.commit()
 
-  # Datos iniciales por defecto si las tablas están vacías
+  # Crear usuario por defecto 'admin' / 'admin' si la tabla está vacía
   cursor.execute("SELECT COUNT(*) FROM usuarios")
   if cursor.fetchone()[0] == 0:
     cursor.executemany(
         "INSERT INTO usuarios (usuario, rol, pin) VALUES (?, ?, ?)",
         [
+            ("admin", "Administrador", "admin"),
             ("César Castillo", "Administrador", "1234"),
             ("Técnico Zona Norte", "Técnico", "0000"),
         ],
@@ -157,13 +158,19 @@ if "autenticado" not in st.session_state:
 
 if not st.session_state.autenticado:
   st.title("🔐 Acceso - Fumigadora Zapa")
+  st.info(
+      "💡 **Acceso por defecto:** Usuario: `admin` | Contraseña / PIN: `admin`"
+  )
+
   with st.form("login_form"):
     conn = sqlite3.connect(DB_NAME)
     df_u = pd.read_sql_query("SELECT usuario FROM usuarios", conn)
     conn.close()
 
     usuario_sel = st.selectbox("Seleccione Usuario:", df_u["usuario"].tolist())
-    pin_input = st.text_input("PIN de Acceso:", type="password")
+    pin_input = st.text_input(
+        "PIN / Contraseña de Acceso:", type="password"
+    )
     submit_login = st.form_submit_button("Entrar al Sistema")
 
     if submit_login:
@@ -177,7 +184,7 @@ if not st.session_state.autenticado:
         )
         st.rerun()
       else:
-        st.error("PIN incorrecto. Intente de nuevo.")
+        st.error("PIN o contraseña incorrectos. Intente de nuevo.")
   st.stop()
 
 
@@ -210,7 +217,6 @@ if st.sidebar.button("Cerrar Sesión"):
 st.sidebar.header("Módulos del Sistema")
 modulos_disponibles = ["📋 Panel, Alertas y Rutas", "📄 Certificados Sanitarios"]
 
-# Si es Administrador, tiene acceso total a inventario, facturación y usuarios
 if st.session_state.rol == "Administrador":
   modulos_disponibles.extend([
       "📦 Inventario de Químicos",
@@ -464,7 +470,7 @@ elif opcion == "👥 Gestión de Usuarios":
   with st.form("nuevo_usuario"):
     nu = st.text_input("Nombre del Usuario (Ej: Juan Pérez)")
     ro = st.selectbox("Rol del Usuario", ["Administrador", "Técnico"])
-    pi = st.text_input("PIN de 4 dígitos", type="password", max_chars=4)
+    pi = st.text_input("PIN o Contraseña", type="password")
 
     if st.form_submit_button("Crear Nuevo Usuario"):
       if nu and pi:
