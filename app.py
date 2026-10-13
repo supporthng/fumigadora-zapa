@@ -55,7 +55,7 @@ st.markdown("""
 
 
 # ==========================================
-# INICIALIZACIÓN DE LA BASE DE DATOS MODULAR
+# INICIALIZACIÓN Y MIGRACIÓN DE LA BASE DE DATOS
 # ==========================================
 def inicializar_db():
   conn = sqlite3.connect(DB_NAME)
@@ -83,7 +83,7 @@ def inicializar_db():
         )
     """)
 
-  # 3. NUEVA TABLA: Proveedores
+  # 3. Proveedores
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS proveedores (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -117,7 +117,7 @@ def inicializar_db():
         )
     """)
 
-  # 5. Inventario: Productos (Con proveedor_id y ficha_tecnica) y Catálogo de Servicios
+  # 5. Inventario: Productos y Catálogo de Servicios
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS productos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -131,6 +131,15 @@ def inicializar_db():
             FOREIGN KEY (proveedor_id) REFERENCES proveedores (id)
         )
     """)
+
+  # Asegurar compatibilidad si la tabla productos ya existía sin las nuevas columnas
+  cursor.execute("PRAGMA table_info(productos)")
+  columnas_productos = [col[1] for col in cursor.fetchall()]
+  if "proveedor_id" not in columnas_productos:
+    cursor.execute("ALTER TABLE productos ADD COLUMN proveedor_id INTEGER")
+  if "ficha_tecnica" not in columnas_productos:
+    cursor.execute("ALTER TABLE productos ADD COLUMN ficha_tecnica TEXT")
+
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS catalogo_servicios (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -663,7 +672,9 @@ elif modulo == "🏭 Módulo de Proveedores":
       "Gestión de proveedores de químicos, cebos, equipos y materiales."
   )
 
-  tab_prov1, tab_prov2 = st.tabs(["Registrar Proveedor", "Directorio de Proveedores"])
+  tab_prov1, tab_prov2 = st.tabs(
+      ["Registrar Proveedor", "Directorio de Proveedores"]
+  )
 
   with tab_prov1:
     with st.form("form_reg_prov"):
@@ -738,7 +749,6 @@ elif modulo == "📦 Módulo de Inventario (Productos & Servicios)":
       uni = st.selectbox("Unidad", ["Litros", "Kilos", "Tubos", "Galones"])
       prc = st.number_input("Precio Estimado (RD$)", min_value=0.0, value=500.0)
 
-      # Selección de proveedor enlazado
       prov_dict = (
           dict(
               zip(
@@ -758,7 +768,6 @@ elif modulo == "📦 Módulo de Inventario (Productos & Servicios)":
         prov_id_sel = None
         st.warning("No hay proveedores registrados.")
 
-      # Campo para la Ficha Técnica (enlace, ruta o texto descriptivo)
       ficha_tec = st.text_input(
           "Ficha Técnica (URL del PDF, enlace web o ruta de documento)"
       )
@@ -939,8 +948,8 @@ elif modulo == "📅 Módulo de Gestión de Servicios (Agenda)":
         conn.commit()
         conn.close()
         st.success(
-            f"¡Servicio agendado para la Localidad ID #{inm_id} con recurrencia"
-            f" {rec} asignado a {tec}!"
+            f"¡Servicio agendado para la Localidad ID #{inmueble_id} con"
+            f" recurrencia {rec} asignado a {tec}!"
         )
         st.rerun()
 
