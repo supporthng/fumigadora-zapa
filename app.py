@@ -208,10 +208,14 @@ def inicializar_db():
 
   conn.commit()
 
-  cursor.execute(
-      "INSERT OR IGNORE INTO usuarios (usuario, rol, pin) VALUES ('admin',"
-      " 'Administrador', 'admin')"
-  )
+  # Inserción segura del usuario administrador para evitar errores de índice único
+  cursor.execute("SELECT COUNT(*) FROM usuarios WHERE LOWER(usuario) = 'admin'")
+  if cursor.fetchone()[0] == 0:
+    cursor.execute(
+        "INSERT INTO usuarios (usuario, rol, pin) VALUES ('admin',"
+        " 'Administrador', 'admin')"
+    )
+    conn.commit()
 
   cursor.execute("SELECT COUNT(*) FROM proveedores")
   if cursor.fetchone()[0] == 0:
