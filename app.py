@@ -12,7 +12,7 @@ DB_NAME = "fumigadora_zapa_erp.db"
 
 
 # ==========================================
-# INICIALIZACIÓN DE LA BASE DE DATOS (4 TABLAS)
+# INICIALIZACIÓN DE LA BASE DE DATOS
 # ==========================================
 def inicializar_db():
   conn = sqlite3.connect(DB_NAME)
@@ -23,7 +23,7 @@ def inicializar_db():
         CREATE TABLE IF NOT EXISTS usuarios (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             usuario TEXT UNIQUE NOT NULL,
-            rol TEXT NOT NULL, -- 'Administrador' o 'Técnico'
+            rol TEXT NOT NULL,
             pin TEXT NOT NULL
         )
     """)
@@ -70,18 +70,16 @@ def inicializar_db():
 
   conn.commit()
 
-  # Crear usuario por defecto 'admin' / 'admin' si la tabla está vacía
-  cursor.execute("SELECT COUNT(*) FROM usuarios")
-  if cursor.fetchone()[0] == 0:
-    cursor.executemany(
-        "INSERT INTO usuarios (usuario, rol, pin) VALUES (?, ?, ?)",
-        [
-            ("admin", "Administrador", "admin"),
-            ("César Castillo", "Administrador", "1234"),
-            ("Técnico Zona Norte", "Técnico", "0000"),
-        ],
-    )
+  # Asegurar que el usuario 'admin' exista obligatoriamente (Upsert / Insert or Ignore)
+  cursor.execute(
+      """
+        INSERT OR IGNORE INTO usuarios (usuario, rol, pin) 
+        VALUES ('admin', 'Administrador', 'admin')
+    """
+  )
+  conn.commit()
 
+  # Datos iniciales de clientes si la tabla está vacía
   cursor.execute("SELECT COUNT(*) FROM clientes")
   if cursor.fetchone()[0] == 0:
     cursor.executemany(
@@ -114,7 +112,9 @@ def inicializar_db():
             ),
         ],
     )
+    conn.commit()
 
+  # Datos iniciales de productos si la tabla está vacía
   cursor.execute("SELECT COUNT(*) FROM productos")
   if cursor.fetchone()[0] == 0:
     cursor.executemany(
@@ -128,8 +128,8 @@ def inicializar_db():
             ("Brodifacoum", "Rodenticida", 25, "Kilos", 450.0),
         ],
     )
+    conn.commit()
 
-  conn.commit()
   conn.close()
 
 
@@ -143,8 +143,8 @@ def verificar_usuario(nombre_usuario, pin_ingresado):
   conn = sqlite3.connect(DB_NAME)
   cursor = conn.cursor()
   cursor.execute(
-      "SELECT rol FROM usuarios WHERE usuario = ? AND pin = ?",
-      (nombre_usuario, pin_ingresado),
+      "SELECT rol FROM usuarios WHERE LOWER(usuario) = LOWER(?) AND pin = ?",
+      (nombre_usuario.strip(), pin_ingresado.strip()),
   )
   res = cursor.fetchone()
   conn.close()
@@ -158,33 +158,28 @@ if "autenticado" not in st.session_state:
 
 if not st.session_state.autenticado:
   st.title("🔐 Acceso - Fumigadora Zapa")
-  st.info(
-      "💡 **Acceso por defecto:** Usuario: `admin` | Contraseña / PIN: `admin`"
-  )
+  st.info("💡 **Acceso rápido:** Usuario: `admin` | Contraseña: `admin`")
 
   with st.form("login_form"):
-    conn = sqlite3.connect(DB_NAME)
-    df_u = pd.read_sql_query("SELECT usuario FROM usuarios", conn)
-    conn.close()
-
-    usuario_sel = st.selectbox("Seleccione Usuario:", df_u["usuario"].tolist())
+    # Campo de texto libre para escribir el usuario sin depender de desplegables obsoletos
+    usuario_input = st.text_input("Usuario:", value="admin")
     pin_input = st.text_input(
-        "PIN / Contraseña de Acceso:", type="password"
+        "PIN / Contraseña:", type="password", value="admin"
     )
     submit_login = st.form_submit_button("Entrar al Sistema")
 
     if submit_login:
-      rol_encontrado = verificar_usuario(usuario_sel, pin_input)
+      rol_encontrado = verificar_usuario(usuario_input, pin_input)
       if rol_encontrado:
         st.session_state.autenticado = True
-        st.session_state.usuario = usuario_sel
+        st.session_state.usuario = usuario_input.strip()
         st.session_state.rol = rol_encontrado
         st.success(
-            f"¡Bienvenido {usuario_sel}! Rol asignado: {rol_encontrado}"
+            f"¡Bienvenido {usuario_input}! Rol asignado: {rol_encontrado}"
         )
         st.rerun()
       else:
-        st.error("PIN o contraseña incorrectos. Intente de nuevo.")
+        st.error("Usuario o contraseña incorrectos. Intente de nuevo.")
   st.stop()
 
 
@@ -465,7 +460,9 @@ elif opcion == "💵 Facturación y Comprobantes (DGII)":
 # ==========================================
 elif opcion == "👥 Gestión de Usuarios":
   st.subheader("Control de Accesos y Permisos del Sistema")
-  st.dataframe(cargar_datos("usuarios")[["id", "usuario", "rol"]], use_container_width=True)
+  st.dataframe(
+      cargar_datos("usuarios")[["id", "usuario", "rol"]], use_container_width=True
+  )
 
   with st.form("nuevo_usuario"):
     nu = st.text_input("Nombre del Usuario (Ej: Juan Pérez)")
