@@ -12,7 +12,6 @@ st.set_page_config(
 DB_NAME = "fumigadora_zapa_modular.db"
 CARPETA_FICHAS = "fichas_tecnicas"
 
-# Crear carpeta para almacenar las fichas técnicas si no existe
 if not os.path.exists(CARPETA_FICHAS):
   os.makedirs(CARPETA_FICHAS)
 
@@ -153,6 +152,8 @@ def inicializar_db():
             estado TEXT DEFAULT 'Pendiente'
         )
     """)
+  
+  # Tabla de Agenda (Programación)
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS servicios_agenda (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -165,6 +166,20 @@ def inicializar_db():
             FOREIGN KEY (inmueble_id) REFERENCES inmuebles (id)
         )
     """)
+
+  # Tabla de Confirmación de Servicios (Conduce y Próxima fecha)
+  cursor.execute("""
+        CREATE TABLE IF NOT EXISTS servicios_confirmados (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            agenda_id INTEGER,
+            conduce TEXT NOT NULL,
+            fecha_ejecucion TEXT NOT NULL,
+            proxima_fumigacion TEXT NOT NULL,
+            observaciones TEXT,
+            FOREIGN KEY (agenda_id) REFERENCES servicios_agenda (id)
+        )
+    """)
+
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS facturas (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -438,7 +453,8 @@ modulo = st.sidebar.radio(
         "🏭 Módulo de Proveedores",
         "📦 Módulo de Inventario (Productos & Servicios)",
         "📄 Módulo de Cotización",
-        "📅 Módulo de Gestión de Servicios (Agenda)",
+        "📅 1. Agenda de Servicios",
+        "✅ 2. Confirmación y Cierre de Servicios",
         "💵 Módulo de Facturación (DGII)",
         "⚙️ Módulo de Configuración (Usuarios & Datos)",
     ],
@@ -516,27 +532,23 @@ if modulo == "📋 Panel Operativo y Alertas":
 elif modulo == "👥 Módulo de Clientes":
   st.title("👥 Módulo de Clientes e Inmuebles")
   st.write(
-      "Gestión de clientes y asociación de múltiples localidades con ID único."
+      "Registra un nuevo cliente y su localidad simultáneamente o consulta el"
+      " directorio."
   )
 
-  tab1, tab2 = st.tabs(["Registrar Localidad", "Directorio de Clientes"])
+  tab1, tab2 = st.tabs(["Registrar Cliente y Localidad", "Directorio General"])
 
   with tab1:
-    with st.form("form_cli"):
-      modo = st.radio("Acción:", ["Cliente Existente", "Cliente Nuevo"])
-      if modo == "Cliente Existente" and not df_clientes.empty:
-        cli_sel = st.selectbox(
-            "Seleccionar Cliente:", df_clientes["cliente"].tolist()
-        )
-        cid = int(df_clientes[df_clientes["cliente"] == cli_sel]["id"].values[0])
-      else:
-        cnuevo = st.text_input("Nombre de la Empresa / Cliente")
-        sectorn = st.text_input("Sector Principal")
-        teln = st.text_input("Teléfono Principal")
-        cid = None
+    with st.form("form_cliente_inmueble_unificado"):
+      st.subheader("1. Información del Cliente / Empresa")
+      nuevo_cliente = st.text_input(
+          "Nombre del Cliente o Empresa (Ej: Supermercado Zapa)"
+      )
+      sector_cliente = st.text_input("Sector Principal (Ej: Gualey, SD)")
+      telefono_cliente = st.text_input("Teléfono Principal del Cliente")
 
       st.markdown("---")
-      st.subheader("Detalle de la Localidad")
+      st.subheader("2. Detalle de la Primera Localidad / Inmueble")
       tipo_inm = st.selectbox(
           "Tipo de Inmueble:",
           [
@@ -548,36 +560,35 @@ elif modulo == "👥 Módulo de Clientes":
           ],
       )
       ubicacion = st.text_input(
-          "Ubicación (Ej: Casa #14 / Local 402 / Apto 5B)"
+          "Detalle de Ubicación (Ej: Local 402, Manzana B)"
       )
       cnom = st.text_input("Persona de Contacto en Sitio")
       ctel = st.text_input("Teléfono Directo de Contacto")
       freq = st.selectbox("Frecuencia Base (Días)", [7, 15, 30, 60, 90, 180])
       ult_s = st.date_input("Fecha Último Servicio", value=hoy)
 
-      if st.form_submit_button("Guardar Localidad"):
-        conn = sqlite3.connect(DB_NAME)
-        cur = conn.cursor()
-        if modo == "Cliente Nuevo":
-          if cnuevo and ctel:
-            cur.execute(
-                "INSERT INTO clientes (cliente, sector, telefono) VALUES (?, ?,"
-                " ?)",
-                (cnuevo, sectorn, teln),
-            )
-            cid = cur.lastrowid
-          else:
-            st.error("Completa los datos del cliente.")
-            st.stop()
+      guardar_todo = st.form_submit_button(
+          "Guardar Cliente y Localidad en el Momento"
+      )
 
-        if cid and ubicacion:
+      if guardar_todo:
+        if nuevo_cliente and telefono_cliente and ubicacion and cnom:
+          conn = sqlite3.connect(DB_NAME)
+          cur = conn.cursor()
+
+          cur.execute(
+              "INSERT INTO clientes (cliente, sector, telefono) VALUES (?, ?, ?)",
+              (nuevo_cliente, sector_cliente, telefono_cliente),
+          )
+          cliente_id_generado = cur.lastrowid
+
           cur.execute(
               """
                     INSERT INTO inmuebles (cliente_id, tipo_inmueble, detalle_ubicacion, contacto_nombre, contacto_telefono, frecuencia_dias, ultimo_servicio)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
               (
-                  cid,
+                  cliente_id_generado,
                   tipo_inm,
                   ubicacion,
                   cnom,
@@ -588,11 +599,19 @@ elif modulo == "👥 Módulo de Clientes":
           )
           conn.commit()
           conn.close()
-          st.success("¡Localidad registrada exitosamente con ID único!")
+          st.success(
+              f"¡Cliente '{nuevo_cliente}' y su localidad registrados con"
+              " éxito!"
+          )
           st.rerun()
+        else:
+          st.warning(
+              "Por favor completa los campos obligatorios del cliente y la"
+              " localidad."
+          )
 
   with tab2:
-    st.subheader("Listado de Inmuebles Registrados")
+    st.subheader("Directorio General de Clientes e Inmuebles")
     st.dataframe(df_inmuebles, use_container_width=True)
 
 
@@ -693,7 +712,7 @@ elif modulo == "🏭 Módulo de Proveedores":
 elif modulo == "📦 Módulo de Inventario (Productos & Servicios)":
   st.title("📦 Módulo de Inventario")
   st.write(
-      "Control de químicos, carga de fichas técnicas en PDF y catálogo de"
+      "Control de químicos, carga directa de fichas técnicas y catálogo de"
       " servicios."
   )
 
@@ -719,107 +738,100 @@ elif modulo == "📦 Módulo de Inventario (Productos & Servicios)":
         use_container_width=True,
     )
 
-    # Nota: Usamos st.container en lugar de st.form para permitir la carga de archivos
-    with st.container():
-      st.markdown("---")
-      st.subheader("Registrar Químico / Producto con Archivo de Ficha Técnica")
+    st.markdown("---")
+    st.subheader("Registrar Químico / Producto con su Ficha Técnica")
 
-      with st.form("form_prod_con_archivo"):
-        np = st.text_input("Nombre del Químico (Ej: Deltametrina)")
-        cat = st.selectbox(
-            "Categoría", ["Insecticida", "Rodenticida", "Cebo", "Equipo"]
-        )
-        stk = st.number_input("Stock", min_value=0, value=10)
-        uni = st.selectbox("Unidad", ["Litros", "Kilos", "Tubos", "Galones"])
-        prc = st.number_input("Precio Estimado (RD$)", min_value=0.0, value=500.0)
-
-        prov_dict = (
-            dict(
-                zip(
-                    df_proveedores["nombre_proveedor"],
-                    df_proveedores["id"],
-                )
-            )
-            if not df_proveedores.empty
-            else {}
-        )
-        if prov_dict:
-          prov_sel = st.selectbox(
-              "Proveedor Asociado:", list(prov_dict.keys())
-          )
-          prov_id_sel = prov_dict[prov_sel]
-        else:
-          prov_id_sel = None
-          st.warning("No hay proveedores registrados.")
-
-        submit_prod = st.form_submit_button(
-            "Guardar Datos del Químico (Paso 1)"
-        )
-
-      # Subida de archivo PDF o documento de la ficha técnica
-      st.write(
-          "📎 **Cargar Ficha Técnica (PDF o Documento):** Selecciona un producto"
-          " guardado para adjuntar su archivo."
+    with st.form("form_prod_unificado"):
+      np = st.text_input("Nombre del Químico (Ej: Deltametrina)")
+      cat = st.selectbox(
+          "Categoría", ["Insecticida", "Rodenticida", "Cebo", "Equipo"]
       )
-      if not df_productos.empty:
-        prod_dict_inv = dict(
-            zip(df_productos["nombre_producto"], df_productos["id"])
+      stk = st.number_input("Stock", min_value=0, value=10)
+      uni = st.selectbox("Unidad", ["Litros", "Kilos", "Tubos", "Galones"])
+      prc = st.number_input("Precio Estimado (RD$)", min_value=0.0, value=500.0)
+
+      prov_dict = (
+          dict(
+              zip(
+                  df_proveedores["nombre_proveedor"],
+                  df_proveedores["id"],
+              )
+          )
+          if not df_proveedores.empty
+          else {}
+      )
+      if prov_dict:
+        prov_sel = st.selectbox(
+            "Proveedor Asociado:", list(prov_dict.keys())
         )
-        prod_sel_archivo = st.selectbox(
-            "Seleccionar Producto para Ficha Técnica:",
-            list(prod_dict_inv.keys()),
-        )
-        prod_id_archivo = prod_dict_inv[prod_sel_archivo]
+        prov_id_sel = prov_dict[prov_sel]
+      else:
+        prov_id_sel = None
+        st.warning("No hay proveedores registrados.")
 
-        archivo_ficha = st.file_uploader(
-            "Sube el archivo PDF de la Ficha Técnica", type=["pdf", "doc", "docx"]
-        )
+      submit_prod = st.form_submit_button("Guardar Químico en Inventario")
 
-        if st.button("📤 Subir y Enlazar Archivo al Producto"):
-          if archivo_ficha is not None:
-            nombre_archivo = f"ficha_{prod_id_archivo}_{archivo_ficha.name}"
-            ruta_destino = os.path.join(CARPETA_FICHAS, nombre_archivo)
+    st.write(
+        "📎 **Adjuntar Ficha Técnica (PDF o Documento):** Selecciona un producto"
+        " existente para subir su archivo:"
+    )
+    if not df_productos.empty:
+      prod_dict_inv = dict(
+          zip(df_productos["nombre_producto"], df_productos["id"])
+      )
+      prod_sel_archivo = st.selectbox(
+          "Seleccionar Producto:", list(prod_dict_inv.keys())
+      )
+      prod_id_archivo = prod_dict_inv[prod_sel_archivo]
 
-            with open(ruta_destino, "wb") as f:
-              f.write(archivo_ficha.getbuffer())
+      archivo_ficha = st.file_uploader(
+          "Sube el archivo PDF de la Ficha Técnica", type=["pdf", "doc", "docx"]
+      )
 
-            conn = sqlite3.connect(DB_NAME)
-            cur = conn.cursor()
-            cur.execute(
-                "UPDATE productos SET ficha_tecnica = ? WHERE id = ?",
-                (nombre_archivo, prod_id_archivo),
-            )
-            conn.commit()
-            conn.close()
-            st.success(
-                f"¡Ficha técnica '{archivo_ficha.name}' cargada y enlazada con"
-                f" éxito a {prod_sel_archivo}!"
-            )
-            st.rerun()
-          else:
-            st.warning("Por favor selecciona un archivo PDF primero.")
+      if st.button("📤 Guardar Ficha Técnica en el Producto"):
+        if archivo_ficha is not None:
+          nombre_archivo = f"ficha_{prod_id_archivo}_{archivo_ficha.name}"
+          ruta_destino = os.path.join(CARPETA_FICHAS, nombre_archivo)
 
-      # Procesar el formulario de registro del producto
-      if submit_prod:
-        if np:
+          with open(ruta_destino, "wb") as f:
+            f.write(archivo_ficha.getbuffer())
+
           conn = sqlite3.connect(DB_NAME)
           cur = conn.cursor()
           cur.execute(
-              """
-                    INSERT INTO productos (nombre_producto, categoria, stock, unidad, precio, proveedor_id, ficha_tecnica)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-              (np, cat, stk, uni, prc, prov_id_sel, "Pendiente de archivo"),
+              "UPDATE productos SET ficha_tecnica = ? WHERE id = ?",
+              (nombre_archivo, prod_id_archivo),
           )
           conn.commit()
           conn.close()
           st.success(
-              "¡Químico registrado con éxito! Ahora puedes cargar su archivo PDF"
-              " abajo."
+              f"¡Ficha técnica '{archivo_ficha.name}' enlazada con éxito a"
+              f" {prod_sel_archivo}!"
           )
           st.rerun()
         else:
-          st.warning("Por favor ingresa el nombre del producto.")
+          st.warning("Por favor selecciona un archivo.")
+
+    if submit_prod:
+      if np:
+        conn = sqlite3.connect(DB_NAME)
+        cur = conn.cursor()
+        cur.execute(
+            """
+                INSERT INTO productos (nombre_producto, categoria, stock, unidad, precio, proveedor_id, ficha_tecnica)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (np, cat, stk, uni, prc, prov_id_sel, "Pendiente"),
+        )
+        conn.commit()
+        conn.close()
+        st.success(
+            "¡Químico registrado con éxito! Ahora puedes subir su archivo PDF en"
+            " la sección de arriba."
+        )
+        st.rerun()
+      else:
+        st.warning("Por favor ingresa el nombre del producto.")
 
   with tab_serv:
     st.subheader("Catálogo de Servicios de Fumigación")
@@ -899,13 +911,13 @@ elif modulo == "📄 Módulo de Cotización":
 
 
 # ==========================================
-# 7. MÓDULO DE GESTIÓN DE SERVICIOS (AGENDA)
+# 7. AGENDA DE SERVICIOS (PROGRAMACIÓN)
 # ==========================================
-elif modulo == "📅 Módulo de Gestión de Servicios (Agenda)":
-  st.title("📅 Gestión de Servicios (Agenda)")
+elif modulo == "📅 1. Agenda de Servicios":
+  st.title("📅 Agenda de Servicios (Programación)")
   st.write(
-      "Programa trabajos seleccionando la localidad, recurrencia y técnico del"
-      " personal registrado."
+      "Programa las visitas futuras seleccionando la localidad, recurrencia y"
+      " técnico asignado."
   )
 
   with st.form("form_agenda"):
@@ -923,7 +935,7 @@ elif modulo == "📅 Módulo de Gestión de Servicios (Agenda)":
       inm_id = None
       st.warning("Registra una localidad primero.")
 
-    f_serv = st.date_input("Fecha del Servicio:", value=hoy)
+    f_serv = st.date_input("Fecha Programada del Servicio:", value=hoy)
     rec = st.selectbox(
         "Recurrencia:",
         [
@@ -945,7 +957,7 @@ elif modulo == "📅 Módulo de Gestión de Servicios (Agenda)":
     )
     tec = st.selectbox("Técnico Asignado:", lista_tecnicos_reg)
 
-    if st.form_submit_button("Agendar Servicio"):
+    if st.form_submit_button("Agendar Trabajo"):
       if inm_id:
         d_map = {
             "Semanal": 7,
@@ -980,24 +992,167 @@ elif modulo == "📅 Módulo de Gestión de Servicios (Agenda)":
         conn.close()
         st.success(
             f"¡Servicio agendado para la Localidad ID #{inm_id} con recurrencia"
-            f" {rec} asignado a {tec}!"
+            f" {rec}!"
         )
         st.rerun()
 
   st.divider()
-  st.subheader("Agenda de Servicios Activos")
+  st.subheader("Trabajos Programados en Agenda")
   df_ag = cargar_datos("""
         SELECT s.id as agenda_id, s.inmueble_id, c.cliente, i.tipo_inmueble, i.detalle_ubicacion, 
                s.fecha_servicio, s.recurrencia, s.trabajo, s.tecnico_asignado, s.estado
         FROM servicios_agenda s
         JOIN inmuebles i ON s.inmueble_id = i.id
         JOIN clientes c ON i.cliente_id = c.id
+        WHERE s.estado = 'Programado'
     """)
   st.dataframe(df_ag, use_container_width=True)
 
 
 # ==========================================
-# 8. MÓDULO DE FACTURACIÓN (DGII)
+# 8. CONFIRMACIÓN Y CIERRE DE SERVICIOS
+# ==========================================
+elif modulo == "✅ 2. Confirmación y Cierre de Servicios":
+  st.title("✅ Confirmación y Cierre de Servicios")
+  st.write(
+      "Confirma los servicios realizados ingresando el número de conduce y la"
+      " fecha de la próxima fumigación."
+  )
+
+  df_pendientes = cargar_datos("""
+        SELECT s.id as agenda_id, c.cliente, i.tipo_inmueble, i.detalle_ubicacion, 
+               s.fecha_servicio, s.trabajo, s.tecnico_asignado, s.recurrencia
+        FROM servicios_agenda s
+        JOIN inmuebles i ON s.inmueble_id = i.id
+        JOIN clientes c ON i.cliente_id = c.id
+        WHERE s.estado = 'Programado'
+    """)
+
+  if not df_pendientes.empty:
+    with st.form("form_confirmar_servicio"):
+      op_pend = df_pendientes.apply(
+          lambda r: (
+              f"Agenda ID #{r['agenda_id']} - {r['cliente']} |"
+              f" {r['tipo_inmueble']} ({r['detalle_ubicacion']}) - Programado"
+              f" para {r['fecha_servicio']}"
+          ),
+          axis=1,
+      ).tolist()
+
+      sel_agenda_str = st.selectbox("Seleccione Servicio Programado:", op_pend)
+      agenda_id_sel = int(
+          sel_agenda_str.split(" - ")[0].replace("Agenda ID #", "")
+      )
+
+      # Obtener datos de recurrencia del servicio seleccionado
+      row_sel = df_pendientes[
+          df_pendientes["agenda_id"] == agenda_id_sel
+      ].iloc[0]
+      recurrencia_act = row_sel["recurrencia"]
+
+      d_map = {
+          "Semanal": 7,
+          "Quincenal": 15,
+          "Mensual": 30,
+          "Cada 2 meses": 60,
+          "Cada 3 meses": 90,
+          "Cada 6 meses": 180,
+      }
+      dias_rec = d_map.get(recurrencia_act, 30)
+
+      st.markdown("---")
+      col1, col2 = st.columns(2)
+      with col1:
+        num_conduce = st.text_input("Número de Conduce (Confirmación)")
+        fecha_ejec = st.date_input("Fecha Real de Ejecución", value=hoy)
+      with col2:
+        # Calcular fecha sugerida de próxima fumigación
+        sugerencia_prox = fecha_ejec + timedelta(days=dias_rec)
+        fecha_prox = st.date_input(
+            "Fecha de Próxima Fumigación", value=sugerencia_prox
+        )
+
+      obs_cierre = st.text_area("Observaciones del Servicio Realizado")
+
+      confirmar_btn = st.form_submit_button(
+          "Confirmar Servicio, Guardar Conduce y Actualizar Próxima Fecha"
+      )
+
+      if confirmar_btn:
+        if num_conduce:
+          conn = sqlite3.connect(DB_NAME)
+          cur = conn.cursor()
+
+          # Registrar en servicios confirmados
+          cur.execute(
+              """
+                    INSERT INTO servicios_confirmados (agenda_id, conduce, fecha_ejecucion, proxima_fumigacion, observaciones)
+                    VALUES (?, ?, ?, ?, ?)
+                """,
+              (
+                  agenda_id_sel,
+                  num_conduce,
+                  fecha_ejec.strftime("%Y-%m-%d"),
+                  fecha_prox.strftime("%Y-%m-%d"),
+                  obs_cierre,
+              ),
+          )
+
+          # Actualizar estado en agenda a 'Completado'
+          cur.execute(
+              "UPDATE servicios_agenda SET estado = 'Completado' WHERE id = ?",
+              (agenda_id_sel,),
+          )
+
+          # Actualizar último servicio en la tabla inmuebles para reflejar el ciclo nuevo
+          cur.execute(
+              """
+                    UPDATE inmuebles 
+                    SET ultimo_s = ? 
+                    WHERE id = (SELECT inmueble_id FROM servicios_agenda WHERE id = ?)
+                """,
+              (fecha_ejec.strftime("%Y-%m-%d"), agenda_id_sel),
+          )
+          # Nota: actualizamos la columna ultimo_servicio según corresponda en la base de datos
+          cur.execute(
+              """
+                    UPDATE inmuebles 
+                    SET ultimo_servicio = ? 
+                    WHERE id = (SELECT inmueble_id FROM servicios_agenda WHERE id = ?)
+                """,
+              (fecha_ejec.strftime("%Y-%m-%d"), agenda_id_sel),
+          )
+
+          conn.commit()
+          conn.close()
+          st.success(
+              f"¡Servicio confirmado con Conduce #{num_conduce}! Próxima"
+              f" fumigación programada para el {fecha_prox}."
+          )
+          st.rerun()
+        else:
+          st.warning("Por favor ingresa el número de conduce.")
+  else:
+    st.info("No hay servicios programados pendientes de confirmación.")
+
+  st.divider()
+  st.subheader("Historial de Servicios Confirmados (Conduces Emitidos)")
+  df_confirmados = cargar_datos("""
+        SELECT sc.id as confirmacion_id, sc.agenda_id, c.cliente, i.tipo_inmueble, i.detalle_ubicacion,
+               sc.conduce, sc.fecha_ejecucion, sc.proxima_fumigacion, s.tecnico_asignado, sc.observaciones
+        FROM servicios_confirmados sc
+        JOIN servicios_agenda s ON sc.agenda_id = s.id
+        JOIN inmuebles i ON s.inmueble_id = i.id
+        JOIN clientes c ON i.cliente_id = c.id
+    """)
+  if not df_confirmados.empty:
+    st.dataframe(df_confirmados, use_container_width=True)
+  else:
+    st.info("Aún no hay servicios confirmados en el historial.")
+
+
+# ==========================================
+# 9. MÓDULO DE FACTURACIÓN (DGII)
 # ==========================================
 elif modulo == "💵 Módulo de Facturación (DGII)":
   st.title("💵 Módulo de Facturación y Comprobantes Fiscales")
@@ -1059,7 +1214,7 @@ elif modulo == "💵 Módulo de Facturación (DGII)":
 
 
 # ==========================================
-# 9. MÓDULO DE CONFIGURACIÓN (USUARIOS & DATOS)
+# 10. MÓDULO DE CONFIGURACIÓN (USUARIOS & DATOS)
 # ==========================================
 elif modulo == "⚙️ Módulo de Configuración (Usuarios & Datos)":
   st.title("⚙️ Configuración, Gestión de Usuarios y Datos Masivos")
