@@ -3,12 +3,63 @@ import sqlite3
 import pandas as pd
 import streamlit as st
 
-# Configuración de la página
+# Configuración de la página (Debe ser el primer comando de Streamlit)
 st.set_page_config(
-    page_title="Fumigadora Zapa - Sistema ERP", page_icon="🐛", layout="wide"
+    page_title="Fumigadora Zapa | ERP System", page_icon="🐛", layout="wide"
 )
 
 DB_NAME = "fumigadora_zapa_erp.db"
+
+
+# ==========================================
+# ESTILOS CSS MODERNOS (UI / UX)
+# ==========================================
+st.markdown("""
+    <style>
+    /* Estilo general de fondo y tipografía */
+    .stApp {
+        background-color: #f8fafc;
+    }
+    
+    /* Contenedor de la tarjeta de login moderna */
+    .login-card {
+        background: #ffffff;
+        padding: 40px;
+        border-radius: 16px;
+        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+        border: 1px solid #e2e8f0;
+    }
+    
+    /* Estilo para los títulos principales */
+    h1, h2, h3 {
+        color: #1e293b;
+        font-family: 'Inter', sans-serif;
+    }
+    
+    /* Botones modernos */
+    .stButton>button {
+        background-color: #0f172a;
+        color: white;
+        border-radius: 8px;
+        padding: 0.5rem 1rem;
+        font-weight: 600;
+        border: none;
+        box-shadow: 0 4px 6px -1px rgba(15, 23, 42, 0.1);
+        transition: all 0.2s ease-in-out;
+    }
+    .stButton>button:hover {
+        background-color: #334155;
+        border: none;
+        color: white;
+    }
+    
+    /* Sidebar moderna */
+    [data-testid="stSidebar"] {
+        background-color: #ffffff;
+        border-right: 1px solid #e2e8f0;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
 
 # ==========================================
@@ -18,7 +69,6 @@ def inicializar_db():
   conn = sqlite3.connect(DB_NAME)
   cursor = conn.cursor()
 
-  # 1. Tabla de Usuarios y Roles
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS usuarios (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -27,8 +77,6 @@ def inicializar_db():
             pin TEXT NOT NULL
         )
     """)
-
-  # 2. Tabla de Clientes
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS clientes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -41,8 +89,6 @@ def inicializar_db():
             monto_sugerido REAL
         )
     """)
-
-  # 3. Tabla de Productos y Químicos
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS productos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -53,8 +99,6 @@ def inicializar_db():
             precio REAL
         )
     """)
-
-  # 4. Tabla de Facturación e Historial Fiscal (DGII)
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS facturas (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -67,10 +111,9 @@ def inicializar_db():
             estado_pago TEXT
         )
     """)
-
   conn.commit()
 
-  # Asegurar que el usuario 'admin' exista obligatoriamente (Upsert / Insert or Ignore)
+  # Insertar usuario admin por defecto
   cursor.execute(
       """
         INSERT OR IGNORE INTO usuarios (usuario, rol, pin) 
@@ -79,7 +122,7 @@ def inicializar_db():
   )
   conn.commit()
 
-  # Datos iniciales de clientes si la tabla está vacía
+  # Datos iniciales de clientes
   cursor.execute("SELECT COUNT(*) FROM clientes")
   if cursor.fetchone()[0] == 0:
     cursor.executemany(
@@ -114,7 +157,7 @@ def inicializar_db():
     )
     conn.commit()
 
-  # Datos iniciales de productos si la tabla está vacía
+  # Datos iniciales de productos
   cursor.execute("SELECT COUNT(*) FROM productos")
   if cursor.fetchone()[0] == 0:
     cursor.executemany(
@@ -137,7 +180,7 @@ inicializar_db()
 
 
 # ==========================================
-# CONTROL DE SESIÓN Y ACCESO (LOGIN)
+# CONTROL DE SESIÓN Y LOGIN MODERNO
 # ==========================================
 def verificar_usuario(nombre_usuario, pin_ingresado):
   conn = sqlite3.connect(DB_NAME)
@@ -157,29 +200,67 @@ if "autenticado" not in st.session_state:
   st.session_state.rol = ""
 
 if not st.session_state.autenticado:
-  st.title("🔐 Acceso - Fumigadora Zapa")
-  st.info("💡 **Acceso rápido:** Usuario: `admin` | Contraseña: `admin`")
+  # Diseño de centrado moderno con columnas
+  _, col_centro, _ = st.columns([1, 1.2, 1])
 
-  with st.form("login_form"):
-    # Campo de texto libre para escribir el usuario sin depender de desplegables obsoletos
-    usuario_input = st.text_input("Usuario:", value="admin")
-    pin_input = st.text_input(
-        "PIN / Contraseña:", type="password", value="admin"
-    )
-    submit_login = st.form_submit_button("Entrar al Sistema")
+  with col_centro:
+    st.markdown("<br><br>", unsafe_allow_html=True)
 
-    if submit_login:
-      rol_encontrado = verificar_usuario(usuario_input, pin_input)
-      if rol_encontrado:
-        st.session_state.autenticado = True
-        st.session_state.usuario = usuario_input.strip()
-        st.session_state.rol = rol_encontrado
-        st.success(
-            f"¡Bienvenido {usuario_input}! Rol asignado: {rol_encontrado}"
+    # Tarjeta de inicio de sesión moderna
+    with st.container():
+      st.markdown(
+          "<div style='text-align: center;'>"
+          "<h2 style='color: #0f172a; margin-bottom: 0px;'>🐛 Fumigadora"
+          " Zapa</h2>"
+          "<p style='color: #64748b; font-size: 14px;'>Sistema Integral de"
+          " Gestión y Operaciones</p>"
+          "</div>",
+          unsafe_allow_html=True,
+      )
+
+      st.markdown("<br>", unsafe_allow_html=True)
+
+      with st.form("login_moderno"):
+        st.markdown(
+            "<p style='font-weight: 600; color: #334155; margin-bottom:"
+            " 5px;'>Usuario</p>",
+            unsafe_allow_html=True,
         )
-        st.rerun()
-      else:
-        st.error("Usuario o contraseña incorrectos. Intente de nuevo.")
+        usuario_input = st.text_input(
+            "Usuario", value="admin", label_visibility="collapsed"
+        )
+
+        st.markdown(
+            "<p style='font-weight: 600; color: #334155; margin-bottom:"
+            " 5px; margin-top: 10px;'>Contraseña o PIN</p>",
+            unsafe_allow_html=True,
+        )
+        pin_input = st.text_input(
+            "PIN", type="password", value="admin", label_visibility="collapsed"
+        )
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        submit_login = st.form_submit_button(
+            "Iniciar Sesión", use_container_width=True
+        )
+
+        if submit_login:
+          rol_encontrado = verificar_usuario(usuario_input, pin_input)
+          if rol_encontrado:
+            st.session_state.autenticado = True
+            st.session_state.usuario = usuario_input.strip()
+            st.session_state.rol = rol_encontrado
+            st.rerun()
+          else:
+            st.error("Credenciales incorrectas. Verifique usuario y contraseña.")
+
+      st.markdown(
+          "<div style='text-align: center; margin-top: 20px;'><p"
+          " style='color: #94a3b8; font-size: 12px;'>Acceso por defecto —"
+          " Usuario: <b>admin</b> | Contraseña: <b>admin</b></p></div>",
+          unsafe_allow_html=True,
+      )
+
   st.stop()
 
 
@@ -200,18 +281,27 @@ df_clientes["ultimo_servicio"] = pd.to_datetime(
 df_productos = cargar_datos("productos")
 df_facturas = cargar_datos("facturas")
 
-st.sidebar.image("https://img.icons8.com/color/96/pest-control.png", width=70)
-st.sidebar.write(
-    f"👤 **Usuario:** {st.session_state.usuario}  \n🛡️ **Rol:**"
-    f" {st.session_state.rol}"
+# Sidebar Profesional
+st.sidebar.markdown(
+    "<h3 style='color: #0f172a; margin-bottom: 0;'>Fumigadora Zapa</h3>"
+    "<p style='color: #64748b; font-size: 12px;'>Panel de Control</p>",
+    unsafe_allow_html=True,
 )
-if st.sidebar.button("Cerrar Sesión"):
+st.sidebar.divider()
+st.sidebar.write(
+    f"👤 **{st.session_state.usuario}**  \n🛡️ Rol: *{st.session_state.rol}*"
+)
+if st.sidebar.button("Cerrar Sesión", use_container_width=True):
   st.session_state.autenticado = False
   st.rerun()
 
-st.sidebar.header("Módulos del Sistema")
-modulos_disponibles = ["📋 Panel, Alertas y Rutas", "📄 Certificados Sanitarios"]
+st.sidebar.divider()
+st.sidebar.markdown(
+    "<p style='font-size: 12px; font-weight: bold; color: #64748b;'>NAVEGACIÓN</p>",
+    unsafe_allow_html=True,
+)
 
+modulos_disponibles = ["📋 Panel, Alertas y Rutas", "📄 Certificados Sanitarios"]
 if st.session_state.rol == "Administrador":
   modulos_disponibles.extend([
       "📦 Inventario de Químicos",
@@ -219,7 +309,9 @@ if st.session_state.rol == "Administrador":
       "👥 Gestión de Usuarios",
   ])
 
-opcion = st.sidebar.radio("Seleccione sección:", modulos_disponibles)
+opcion = st.sidebar.radio(
+    "Seleccione sección:", modulos_disponibles, label_visibility="collapsed"
+)
 
 hoy = datetime.now().date()
 df_clientes["proximo_servicio"] = df_clientes.apply(
@@ -246,7 +338,8 @@ df_clientes["estado"] = df_clientes["proximo_servicio"].apply(calcular_estado)
 # 1. PANEL, ALERTAS Y RUTAS
 # ==========================================
 if opcion == "📋 Panel, Alertas y Rutas":
-  st.subheader("Tablero Operativo y Planificación de Servicios")
+  st.title("Tablero Operativo")
+  st.write("Planificación de servicios y control de frecuencias de clientes.")
 
   col1, col2, col3 = st.columns(3)
   col1.metric("Total Clientes", len(df_clientes))
@@ -326,7 +419,10 @@ if opcion == "📋 Panel, Alertas y Rutas":
 # 2. CERTIFICADOS SANITARIOS
 # ==========================================
 elif opcion == "📄 Certificados Sanitarios":
-  st.subheader("Generación de Certificado de Fumigación")
+  st.title("Certificados Sanitarios")
+  st.write(
+      "Generación y descarga de constancias oficiales de control de plagas."
+  )
   if not df_clientes.empty:
     cli_cert = st.selectbox(
         "Seleccionar Cliente:", df_clientes["cliente"].tolist()
@@ -363,10 +459,12 @@ elif opcion == "📄 Certificados Sanitarios":
 # 3. INVENTARIO DE QUÍMICOS (Solo Admin)
 # ==========================================
 elif opcion == "📦 Inventario de Químicos":
-  st.subheader("Control de Stock e Insumos")
+  st.title("Inventario de Químicos")
+  st.write("Control de stock, insumos y materiales.")
   st.dataframe(df_productos, use_container_width=True)
 
   with st.form("nuevo_prod"):
+    st.subheader("Registrar Nuevo Insumo")
     n_prod = st.text_input("Nombre del Químico / Producto")
     cat_prod = st.selectbox(
         "Categoría", ["Insecticida", "Rodenticida", "Cebo", "Equipo"]
@@ -393,7 +491,8 @@ elif opcion == "📦 Inventario de Químicos":
 # 4. FACTURACIÓN Y COMPROBANTES DGII (Solo Admin)
 # ==========================================
 elif opcion == "💵 Facturación y Comprobantes (DGII)":
-  st.subheader("Módulo de Facturación y Emisión e-CF")
+  st.title("Módulo de Facturación y Comprobantes Fiscales")
+  st.write("Emisión de facturas y control de NCF / e-CF.")
 
   with st.form("form_factura"):
     cli_fac = st.selectbox(
@@ -459,12 +558,14 @@ elif opcion == "💵 Facturación y Comprobantes (DGII)":
 # 5. GESTIÓN DE USUARIOS (Solo Admin)
 # ==========================================
 elif opcion == "👥 Gestión de Usuarios":
-  st.subheader("Control de Accesos y Permisos del Sistema")
+  st.title("Gestión de Usuarios y Accesos")
+  st.write("Administración de roles, permisos y credenciales.")
   st.dataframe(
       cargar_datos("usuarios")[["id", "usuario", "rol"]], use_container_width=True
   )
 
   with st.form("nuevo_usuario"):
+    st.subheader("Crear Nuevo Usuario")
     nu = st.text_input("Nombre del Usuario (Ej: Juan Pérez)")
     ro = st.selectbox("Rol del Usuario", ["Administrador", "Técnico"])
     pi = st.text_input("PIN o Contraseña", type="password")
