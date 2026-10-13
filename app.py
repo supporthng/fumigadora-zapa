@@ -182,11 +182,16 @@ def inicializar_db():
   cursor.execute("PRAGMA table_info(servicios_confirmados)")
   cols_sc = [col[1] for col in cursor.fetchall()]
   if "status" not in cols_sc:
-    cursor.execute("ALTER TABLE servicios_confirmados ADD COLUMN status TEXT DEFAULT 'Realizado'")
+    cursor.execute(
+        "ALTER TABLE servicios_confirmados ADD COLUMN status TEXT DEFAULT"
+        " 'Realizado'"
+    )
   if "razon" not in cols_sc:
     cursor.execute("ALTER TABLE servicios_confirmados ADD COLUMN razon TEXT")
   if "fecha_reagenda" not in cols_sc:
-    cursor.execute("ALTER TABLE servicios_confirmados ADD COLUMN fecha_reagenda TEXT")
+    cursor.execute(
+        "ALTER TABLE servicios_confirmados ADD COLUMN fecha_reagenda TEXT"
+    )
 
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS facturas (
@@ -1027,7 +1032,6 @@ elif modulo == "✅ 2. Confirmación y Cierre de Servicios":
       " desde las pestañas."
   )
 
-  # INVERTIDAS: Consulta de Historial queda primero por defecto
   tab_conf2, tab_conf1 = st.tabs(
       [
           "🔍 Consulta de Historial y Filtros por Fecha",
