@@ -60,7 +60,7 @@ def inicializar_db():
   conn = sqlite3.connect(DB_NAME)
   cursor = conn.cursor()
 
-  # 1. Configuración / Usuarios
+  # 1. Configuración / Usuarios del Sistema
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS usuarios (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -70,7 +70,19 @@ def inicializar_db():
         )
     """)
 
-  # 2. Clientes e Inmuebles (Localidades)
+  # 2. NUEVA TABLA: Técnicos de Campo
+  cursor.execute("""
+        CREATE TABLE IF NOT EXISTS tecnicos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nombre_tecnico TEXT NOT NULL,
+            telefono TEXT,
+            especialidad TEXT,
+            zona TEXT,
+            estado TEXT DEFAULT 'Activo'
+        )
+    """)
+
+  # 3. Clientes e Inmuebles (Localidades)
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS clientes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -93,7 +105,7 @@ def inicializar_db():
         )
     """)
 
-  # 3. Inventario: Productos / Químicos y Catálogo de Servicios
+  # 4. Inventario: Productos y Catálogo de Servicios
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS productos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -113,7 +125,7 @@ def inicializar_db():
         )
     """)
 
-  # 4. Cotizaciones
+  # 5. Cotizaciones
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS cotizaciones (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -125,7 +137,7 @@ def inicializar_db():
         )
     """)
 
-  # 5. Gestión de Servicios (Agenda)
+  # 6. Gestión de Servicios (Agenda)
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS servicios_agenda (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -139,7 +151,7 @@ def inicializar_db():
         )
     """)
 
-  # 6. Facturación (DGII)
+  # 7. Facturación (DGII)
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS facturas (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -160,6 +172,19 @@ def inicializar_db():
       "INSERT OR IGNORE INTO usuarios (usuario, rol, pin) VALUES ('admin',"
       " 'Administrador', 'admin')"
   )
+
+  cursor.execute("SELECT COUNT(*) FROM tecnicos")
+  if cursor.fetchone()[0] == 0:
+    cursor.executemany(
+        """
+            INSERT INTO tecnicos (nombre_tecnico, telefono, especialidad, zona, estado)
+            VALUES (?, ?, ?, ?, ?)
+        """,
+        [
+            ("Juan Pérez", "8091112233", "Fumigación General", "Santo Domingo Este", "Activo"),
+            ("Carlos Gómez", "8094445566", "Control de Roedores", "Distrito Nacional", "Activo"),
+        ],
+    )
 
   cursor.execute("SELECT COUNT(*) FROM clientes")
   if cursor.fetchone()[0] == 0:
@@ -312,6 +337,7 @@ df_inmuebles = cargar_datos("""
     JOIN clientes c ON i.cliente_id = c.id
 """)
 df_clientes = cargar_datos("clientes")
+df_tecnicos = cargar_datos("tecnicos")
 df_productos = cargar_datos("productos")
 df_servicios_cat = cargar_datos("catalogo_servicios")
 df_cotizaciones = cargar_datos("cotizaciones")
@@ -346,6 +372,7 @@ modulo = st.sidebar.radio(
     [
         "📋 Panel Operativo y Alertas",
         "👥 Módulo de Clientes",
+        "👷 Módulo de Técnicos",
         "📦 Módulo de Inventario (Productos & Servicios)",
         "📄 Módulo de Cotización",
         "📅 Módulo de Gestión de Servicios (Agenda)",
@@ -507,7 +534,54 @@ elif modulo == "👥 Módulo de Clientes":
 
 
 # ==========================================
-# 3. MÓDULO DE INVENTARIO (PRODUCTOS & SERVICIOS)
+# 3. MÓDULO DE TÉCNICOS
+# ==========================================
+elif modulo == "👷 Módulo de Técnicos":
+  st.title("👷 Módulo de Técnicos de Campo")
+  st.write(
+      "Administración del personal técnico encargado de ejecutar los servicios."
+  )
+
+  tab_tec1, tab_tec2 = st.tabs(["Registrar Técnico", "Listado de Técnicos"])
+
+  with tab_tec1:
+    with st.form("form_reg_tecnico"):
+      st.subheader("Nuevo Personal Técnico")
+      nombre_tec = st.text_input("Nombre Completo del Técnico")
+      tel_tec = st.text_input("Teléfono / Celular")
+      esp_tec = st.text_input(
+          "Especialidad (Ej: Control de Plagas, Roedores, Termitas)"
+      )
+      zona_tec = st.text_input(
+          "Zona o Sector Asignado (Ej: Distrito Nacional, Santo Domingo Este)"
+      )
+      estado_tec = st.selectbox("Estado", ["Activo", "Inactivo"])
+
+      if st.form_submit_button("Guardar Técnico"):
+        if nombre_tec:
+          conn = sqlite3.connect(DB_NAME)
+          cur = conn.cursor()
+          cur.execute(
+              """
+                    INSERT INTO tecnicos (nombre_tecnico, telefono, especialidad, zona, estado)
+                    VALUES (?, ?, ?, ?, ?)
+                """,
+              (nombre_tec, tel_tec, esp_tec, zona_tec, estado_tec),
+          )
+          conn.commit()
+          conn.close()
+          st.success(f"¡Técnico {nombre_tec} registrado con éxito!")
+          st.rerun()
+        else:
+          st.warning("Por favor ingresa el nombre del técnico.")
+
+  with tab_tec2:
+    st.subheader("Personal Técnico Registrado")
+    st.dataframe(df_tecnicos, use_container_width=True)
+
+
+# ==========================================
+# 4. MÓDULO DE INVENTARIO (PRODUCTOS & SERVICIOS)
 # ==========================================
 elif modulo == "📦 Módulo de Inventario (Productos & Servicios)":
   st.title("📦 Módulo de Inventario")
@@ -570,7 +644,7 @@ elif modulo == "📦 Módulo de Inventario (Productos & Servicios)":
 
 
 # ==========================================
-# 4. MÓDULO DE COTIZACIÓN
+# 5. MÓDULO DE COTIZACIÓN
 # ==========================================
 elif modulo == "📄 Módulo de Cotización":
   st.title("📄 Módulo de Cotización")
@@ -624,11 +698,14 @@ elif modulo == "📄 Módulo de Cotización":
 
 
 # ==========================================
-# 5. MÓDULO DE GESTIÓN DE SERVICIOS (AGENDA)
+# 6. MÓDULO DE GESTIÓN DE SERVICIOS (AGENDA)
 # ==========================================
 elif modulo == "📅 Módulo de Gestión de Servicios (Agenda)":
   st.title("📅 Gestión de Servicios (Agenda)")
-  st.write("Programa trabajos con recurrencia exacta y técnico asignado.")
+  st.write(
+      "Programa trabajos seleccionando la localidad, recurrencia y técnico del"
+      " personal registrado."
+  )
 
   with st.form("form_agenda"):
     if not df_inmuebles.empty:
@@ -660,7 +737,14 @@ elif modulo == "📅 Módulo de Gestión de Servicios (Agenda)":
     trab = st.selectbox(
         "Trabajo:", df_servicios_cat["nombre_servicio"].tolist()
     )
-    tec = st.selectbox("Técnico Asignado:", df_usuarios["usuario"].tolist())
+
+    # Selección del técnico utilizando la nueva tabla de técnicos
+    lista_tecnicos_reg = (
+        df_tecnicos["nombre_tecnico"].tolist()
+        if not df_tecnicos.empty
+        else ["Sin técnicos"]
+    )
+    tec = st.selectbox("Técnico Asignado:", lista_tecnicos_reg)
 
     if st.form_submit_button("Agendar Servicio"):
       if inm_id:
@@ -696,8 +780,8 @@ elif modulo == "📅 Módulo de Gestión de Servicios (Agenda)":
         conn.commit()
         conn.close()
         st.success(
-            f"¡Servicio agendado para la Localidad ID #{inm_id} con recurrencia"
-            f" {rec}!"
+            f"¡Servicio agendado para la Localidad ID #{inmueble_id} con"
+            f" recurrencia {rec} asignado a {tec}!"
         )
         st.rerun()
 
@@ -714,7 +798,7 @@ elif modulo == "📅 Módulo de Gestión de Servicios (Agenda)":
 
 
 # ==========================================
-# 6. MÓDULO DE FACTURACIÓN (DGII)
+# 7. MÓDULO DE FACTURACIÓN (DGII)
 # ==========================================
 elif modulo == "💵 Módulo de Facturación (DGII)":
   st.title("💵 Módulo de Facturación y Comprobantes Fiscales")
@@ -776,7 +860,7 @@ elif modulo == "💵 Módulo de Facturación (DGII)":
 
 
 # ==========================================
-# 7. MÓDULO DE CONFIGURACIÓN (USUARIOS)
+# 8. MÓDULO DE CONFIGURACIÓN (USUARIOS)
 # ==========================================
 elif modulo == "⚙️ Módulo de Configuración (Usuarios)":
   st.title("⚙️ Módulo de Configuración y Usuarios")
