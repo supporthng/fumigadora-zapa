@@ -179,7 +179,6 @@ def inicializar_db():
         )
     """)
 
-  # Migración automática si la tabla servicios_confirmados ya existía sin las nuevas columnas
   cursor.execute("PRAGMA table_info(servicios_confirmados)")
   cols_sc = [col[1] for col in cursor.fetchall()]
   if "status" not in cols_sc:
@@ -1019,18 +1018,131 @@ elif modulo == "📅 1. Agenda de Servicios":
 
 
 # ==========================================
-# 8. CONFIRMACIÓN Y CIERRE DE SERVICIOS (CON TABLA Y ESTADOS)
+# 8. CONFIRMACIÓN Y CIERRE DE SERVICIOS (CONSULTA PRIMERO POR DEFECTO)
 # ==========================================
 elif modulo == "✅ 2. Confirmación y Cierre de Servicios":
   st.title("✅ Confirmación, Cierre y Consulta de Servicios")
   st.write(
-      "Gestiona los servicios pendientes mediante tabla y consulta el historial"
-      " con filtros de fecha."
+      "Consulta el historial de servicios o gestiona los servicios pendientes"
+      " desde las pestañas."
   )
 
-  tab_conf1, tab_conf2 = st.tabs(
-      ["Gestión de Servicios Pendientes (Tabla)", "Consulta de Historial"]
+  # INVERTIDAS: Consulta de Historial queda primero por defecto
+  tab_conf2, tab_conf1 = st.tabs(
+      [
+          "🔍 Consulta de Historial y Filtros por Fecha",
+          "📋 Gestión de Servicios Pendientes (Tabla)",
+      ]
   )
+
+  with tab_conf2:
+    st.subheader("🔍 Consulta Avanzada del Historial de Servicios")
+
+    df_confirmados = cargar_datos("""
+            SELECT sc.id as confirmacion_id, sc.agenda_id, c.cliente, i.tipo_inmueble, i.detalle_ubicacion,
+                   sc.status, sc.conduce, sc.fecha_ejecucion, sc.proxima_fumigacion, sc.razon, sc.fecha_reagenda, 
+                   s.tecnico_asignado, sc.observaciones
+            FROM servicios_confirmados sc
+            JOIN servicios_agenda s ON sc.agenda_id = s.id
+            JOIN inmuebles i ON s.inmueble_id = i.id
+            JOIN clientes c ON i.cliente_id = c.id
+        """)
+
+    if not df_confirmados.empty:
+      filtro_tiempo = st.selectbox(
+          "Filtrar por período (Fecha de ejecución/reagenda):",
+          [
+              "Todos",
+              "Hoy",
+              "Ayer",
+              "Semana Actual",
+              "Última Semana (7 días)",
+              "Este Mes",
+              "Mes Anterior",
+              "Hace Dos Meses",
+              "Hace Tres Meses",
+              "Seleccione Rango de Fecha",
+          ],
+      )
+
+      df_confirmados["fecha_ref"] = pd.to_datetime(
+          df_confirmados["fecha_ejecucion"].fillna(
+              df_confirmados["fecha_reagenda"]
+          )
+      ).dt.date
+
+      if filtro_tiempo == "Hoy":
+        df_filtrado = df_confirmados[df_confirmados["fecha_ref"] == hoy]
+      elif filtro_tiempo == "Ayer":
+        ayer = hoy - timedelta(days=1)
+        df_filtrado = df_confirmados[df_confirmados["fecha_ref"] == ayer]
+      elif filtro_tiempo == "Semana Actual":
+        inicio_semana = hoy - timedelta(days=hoy.weekday())
+        df_filtrado = df_confirmados[
+            (df_confirmados["fecha_ref"] >= inicio_semana)
+            & (df_confirmados["fecha_ref"] <= hoy)
+        ]
+      elif filtro_tiempo == "Última Semana (7 días)":
+        hace_7_dias = hoy - timedelta(days=7)
+        df_filtrado = df_confirmados[
+            (df_confirmados["fecha_ref"] >= hace_7_dias)
+            & (df_confirmados["fecha_ref"] <= hoy)
+        ]
+      elif filtro_tiempo == "Este Mes":
+        inicio_mes = hoy.replace(day=1)
+        df_filtrado = df_confirmados[
+            (df_confirmados["fecha_ref"] >= inicio_mes)
+            & (df_confirmados["fecha_ref"] <= hoy)
+        ]
+      elif filtro_tiempo == "Mes Anterior":
+        mes_pasado_fin = hoy.replace(day=1) - timedelta(days=1)
+        mes_pasado_inicio = mes_pasado_fin.replace(day=1)
+        df_filtrado = df_confirmados[
+            (df_confirmados["fecha_ref"] >= mes_pasado_inicio)
+            & (df_confirmados["fecha_ref"] <= mes_pasado_fin)
+        ]
+      elif filtro_tiempo == "Hace Dos Meses":
+        hace_2m_fin = (
+            hoy.replace(day=1) - timedelta(days=1)
+        ).replace(day=1) - timedelta(days=1)
+        hace_2m_inicio = hace_2m_fin.replace(day=1)
+        df_filtrado = df_confirmados[
+            (df_confirmados["fecha_ref"] >= hace_2m_inicio)
+            & (df_confirmados["fecha_ref"] <= hace_2m_fin)
+        ]
+      elif filtro_tiempo == "Hace Tres Meses":
+        hace_3m_fin = (
+            (
+                (hoy.replace(day=1) - timedelta(days=1)).replace(day=1)
+                - timedelta(days=1)
+            ).replace(day=1)
+            - timedelta(days=1)
+        )
+        hace_3m_inicio = hace_3m_fin.replace(day=1)
+        df_filtrado = df_confirmados[
+            (df_confirmados["fecha_ref"] >= hace_3m_inicio)
+            & (df_confirmados["fecha_ref"] <= hace_3m_fin)
+        ]
+      elif filtro_tiempo == "Seleccione Rango de Fecha":
+        rango = st.date_input(
+            "Seleccione el rango (Inicio - Fin):",
+            value=(hoy - timedelta(days=30), hoy),
+        )
+        if isinstance(rango, tuple) and len(rango) == 2:
+          f_inicio, f_fin = rango
+          df_filtrado = df_confirmados[
+              (df_confirmados["fecha_ref"] >= f_inicio)
+              & (df_confirmados["fecha_ref"] <= f_fin)
+          ]
+        else:
+          df_filtrado = df_confirmados
+      else:
+        df_filtrado = df_confirmados
+
+      st.markdown(f"📊 **Resultados encontrados:** {len(df_filtrado)} registros")
+      st.dataframe(df_filtrado.drop(columns=["fecha_ref"]), use_container_width=True)
+    else:
+      st.info("Aún no hay registros en el historial.")
 
   with tab_conf1:
     st.subheader("📋 Listado de Servicios Programados Pendientes")
@@ -1220,115 +1332,6 @@ elif modulo == "✅ 2. Confirmación y Cierre de Servicios":
           st.rerun()
     else:
       st.info("No hay servicios programados pendientes de gestión.")
-
-  with tab_conf2:
-    st.subheader("🔍 Consulta Avanzada del Historial de Servicios")
-
-    df_confirmados = cargar_datos("""
-            SELECT sc.id as confirmacion_id, sc.agenda_id, c.cliente, i.tipo_inmueble, i.detalle_ubicacion,
-                   sc.status, sc.conduce, sc.fecha_ejecucion, sc.proxima_fumigacion, sc.razon, sc.fecha_reagenda, 
-                   s.tecnico_asignado, sc.observaciones
-            FROM servicios_confirmados sc
-            JOIN servicios_agenda s ON sc.agenda_id = s.id
-            JOIN inmuebles i ON s.inmueble_id = i.id
-            JOIN clientes c ON i.cliente_id = c.id
-        """)
-
-    if not df_confirmados.empty:
-      filtro_tiempo = st.selectbox(
-          "Filtrar por período (Fecha de ejecución/reagenda):",
-          [
-              "Todos",
-              "Hoy",
-              "Ayer",
-              "Semana Actual",
-              "Última Semana (7 días)",
-              "Este Mes",
-              "Mes Anterior",
-              "Hace Dos Meses",
-              "Hace Tres Meses",
-              "Seleccione Rango de Fecha",
-          ],
-      )
-
-      df_confirmados["fecha_ref"] = pd.to_datetime(
-          df_confirmados["fecha_ejecucion"].fillna(
-              df_confirmados["fecha_reagenda"]
-          )
-      ).dt.date
-
-      if filtro_tiempo == "Hoy":
-        df_filtrado = df_confirmados[df_confirmados["fecha_ref"] == hoy]
-      elif filtro_tiempo == "Ayer":
-        ayer = hoy - timedelta(days=1)
-        df_filtrado = df_confirmados[df_confirmados["fecha_ref"] == ayer]
-      elif filtro_tiempo == "Semana Actual":
-        inicio_semana = hoy - timedelta(days=hoy.weekday())
-        df_filtrado = df_confirmados[
-            (df_confirmados["fecha_ref"] >= inicio_semana)
-            & (df_confirmados["fecha_ref"] <= hoy)
-        ]
-      elif filtro_tiempo == "Última Semana (7 días)":
-        hace_7_dias = hoy - timedelta(days=7)
-        df_filtrado = df_confirmados[
-            (df_confirmados["fecha_ref"] >= hace_7_dias)
-            & (df_confirmados["fecha_ref"] <= hoy)
-        ]
-      elif filtro_tiempo == "Este Mes":
-        inicio_mes = hoy.replace(day=1)
-        df_filtrado = df_confirmados[
-            (df_confirmados["fecha_ref"] >= inicio_mes)
-            & (df_confirmados["fecha_ref"] <= hoy)
-        ]
-      elif filtro_tiempo == "Mes Anterior":
-        mes_pasado_fin = hoy.replace(day=1) - timedelta(days=1)
-        mes_pasado_inicio = mes_pasado_fin.replace(day=1)
-        df_filtrado = df_confirmados[
-            (df_confirmados["fecha_ref"] >= mes_pasado_inicio)
-            & (df_confirmados["fecha_ref"] <= mes_pasado_fin)
-        ]
-      elif filtro_tiempo == "Hace Dos Meses":
-        hace_2m_fin = (
-            hoy.replace(day=1) - timedelta(days=1)
-        ).replace(day=1) - timedelta(days=1)
-        hace_2m_inicio = hace_2m_fin.replace(day=1)
-        df_filtrado = df_confirmados[
-            (df_confirmados["fecha_ref"] >= hace_2m_inicio)
-            & (df_confirmados["fecha_ref"] <= hace_2m_fin)
-        ]
-      elif filtro_tiempo == "Hace Tres Meses":
-        hace_3m_fin = (
-            (
-                (hoy.replace(day=1) - timedelta(days=1)).replace(day=1)
-                - timedelta(days=1)
-            ).replace(day=1)
-            - timedelta(days=1)
-        )
-        hace_3m_inicio = hace_3m_fin.replace(day=1)
-        df_filtrado = df_confirmados[
-            (df_confirmados["fecha_ref"] >= hace_3m_inicio)
-            & (df_confirmados["fecha_ref"] <= hace_3m_fin)
-        ]
-      elif filtro_tiempo == "Seleccione Rango de Fecha":
-        rango = st.date_input(
-            "Seleccione el rango (Inicio - Fin):",
-            value=(hoy - timedelta(days=30), hoy),
-        )
-        if isinstance(rango, tuple) and len(rango) == 2:
-          f_inicio, f_fin = rango
-          df_filtrado = df_confirmados[
-              (df_confirmados["fecha_ref"] >= f_inicio)
-              & (df_confirmados["fecha_ref"] <= f_fin)
-          ]
-        else:
-          df_filtrado = df_confirmados
-      else:
-        df_filtrado = df_confirmados
-
-      st.markdown(f"📊 **Resultados encontrados:** {len(df_filtrado)} registros")
-      st.dataframe(df_filtrado.drop(columns=["fecha_ref"]), use_container_width=True)
-    else:
-      st.info("Aún no hay registros en el historial.")
 
 
 # ==========================================
