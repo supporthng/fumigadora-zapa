@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-import io
+import os
 import sqlite3
 import pandas as pd
 import streamlit as st
@@ -10,6 +10,11 @@ st.set_page_config(
 )
 
 DB_NAME = "fumigadora_zapa_modular.db"
+CARPETA_FICHAS = "fichas_tecnicas"
+
+# Crear carpeta para almacenar las fichas técnicas si no existe
+if not os.path.exists(CARPETA_FICHAS):
+  os.makedirs(CARPETA_FICHAS)
 
 
 # ==========================================
@@ -61,7 +66,6 @@ def inicializar_db():
   conn = sqlite3.connect(DB_NAME)
   cursor = conn.cursor()
 
-  # 1. Configuración / Usuarios del Sistema
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS usuarios (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -70,8 +74,6 @@ def inicializar_db():
             pin TEXT NOT NULL
         )
     """)
-
-  # 2. Técnicos de Campo
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS tecnicos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -82,8 +84,6 @@ def inicializar_db():
             estado TEXT DEFAULT 'Activo'
         )
     """)
-
-  # 3. Proveedores
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS proveedores (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -93,8 +93,6 @@ def inicializar_db():
             email TEXT
         )
     """)
-
-  # 4. Clientes e Inmuebles (Localidades)
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS clientes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -116,8 +114,6 @@ def inicializar_db():
             FOREIGN KEY (cliente_id) REFERENCES clientes (id)
         )
     """)
-
-  # 5. Inventario: Productos y Catálogo de Servicios
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS productos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -132,7 +128,6 @@ def inicializar_db():
         )
     """)
 
-  # Asegurar compatibilidad si la tabla productos ya existía sin las nuevas columnas
   cursor.execute("PRAGMA table_info(productos)")
   columnas_productos = [col[1] for col in cursor.fetchall()]
   if "proveedor_id" not in columnas_productos:
@@ -148,8 +143,6 @@ def inicializar_db():
             precio_base REAL
         )
     """)
-
-  # 6. Cotizaciones
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS cotizaciones (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -160,8 +153,6 @@ def inicializar_db():
             estado TEXT DEFAULT 'Pendiente'
         )
     """)
-
-  # 7. Gestión de Servicios (Agenda)
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS servicios_agenda (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -174,8 +165,6 @@ def inicializar_db():
             FOREIGN KEY (inmueble_id) REFERENCES inmuebles (id)
         )
     """)
-
-  # 8. Facturación (DGII)
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS facturas (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -191,7 +180,6 @@ def inicializar_db():
 
   conn.commit()
 
-  # Datos por defecto
   cursor.execute(
       "INSERT OR IGNORE INTO usuarios (usuario, rol, pin) VALUES ('admin',"
       " 'Administrador', 'admin')"
@@ -310,17 +298,9 @@ def inicializar_db():
                 "Litros",
                 850.0,
                 1,
-                "https://ejemplo.com/fichas/cyperkill.pdf",
+                "cyperkill_ficha.pdf",
             ),
-            (
-                "Brodifacoum",
-                "Rodenticida",
-                25,
-                "Kilos",
-                450.0,
-                2,
-                "Ficha técnica en archivo local / PDF 02",
-            ),
+            ("Brodifacoum", "Rodenticida", 25, "Kilos", 450.0, 2, "brodifacoum.pdf"),
         ],
     )
 
@@ -713,7 +693,7 @@ elif modulo == "🏭 Módulo de Proveedores":
 elif modulo == "📦 Módulo de Inventario (Productos & Servicios)":
   st.title("📦 Módulo de Inventario")
   st.write(
-      "Control de químicos, fichas técnicas enlazadas a proveedores y catálogo de"
+      "Control de químicos, carga de fichas técnicas en PDF y catálogo de"
       " servicios."
   )
 
@@ -739,40 +719,88 @@ elif modulo == "📦 Módulo de Inventario (Productos & Servicios)":
         use_container_width=True,
     )
 
-    with st.form("form_prod"):
-      st.subheader("Registrar Químico / Producto con Ficha Técnica")
-      np = st.text_input("Nombre del Químico (Ej: Deltametrina)")
-      cat = st.selectbox(
-          "Categoría", ["Insecticida", "Rodenticida", "Cebo", "Equipo"]
-      )
-      stk = st.number_input("Stock", min_value=0, value=10)
-      uni = st.selectbox("Unidad", ["Litros", "Kilos", "Tubos", "Galones"])
-      prc = st.number_input("Precio Estimado (RD$)", min_value=0.0, value=500.0)
+    # Nota: Usamos st.container en lugar de st.form para permitir la carga de archivos
+    with st.container():
+      st.markdown("---")
+      st.subheader("Registrar Químico / Producto con Archivo de Ficha Técnica")
 
-      prov_dict = (
-          dict(
-              zip(
-                  df_proveedores["nombre_proveedor"],
-                  df_proveedores["id"],
-              )
-          )
-          if not df_proveedores.empty
-          else {}
-      )
-      if prov_dict:
-        prov_sel = st.selectbox(
-            "Proveedor Asociado:", list(prov_dict.keys())
+      with st.form("form_prod_con_archivo"):
+        np = st.text_input("Nombre del Químico (Ej: Deltametrina)")
+        cat = st.selectbox(
+            "Categoría", ["Insecticida", "Rodenticida", "Cebo", "Equipo"]
         )
-        prov_id_sel = prov_dict[prov_sel]
-      else:
-        prov_id_sel = None
-        st.warning("No hay proveedores registrados.")
+        stk = st.number_input("Stock", min_value=0, value=10)
+        uni = st.selectbox("Unidad", ["Litros", "Kilos", "Tubos", "Galones"])
+        prc = st.number_input("Precio Estimado (RD$)", min_value=0.0, value=500.0)
 
-      ficha_tec = st.text_input(
-          "Ficha Técnica (URL del PDF, enlace web o ruta de documento)"
+        prov_dict = (
+            dict(
+                zip(
+                    df_proveedores["nombre_proveedor"],
+                    df_proveedores["id"],
+                )
+            )
+            if not df_proveedores.empty
+            else {}
+        )
+        if prov_dict:
+          prov_sel = st.selectbox(
+              "Proveedor Asociado:", list(prov_dict.keys())
+          )
+          prov_id_sel = prov_dict[prov_sel]
+        else:
+          prov_id_sel = None
+          st.warning("No hay proveedores registrados.")
+
+        submit_prod = st.form_submit_button(
+            "Guardar Datos del Químico (Paso 1)"
+        )
+
+      # Subida de archivo PDF o documento de la ficha técnica
+      st.write(
+          "📎 **Cargar Ficha Técnica (PDF o Documento):** Selecciona un producto"
+          " guardado para adjuntar su archivo."
       )
+      if not df_productos.empty:
+        prod_dict_inv = dict(
+            zip(df_productos["nombre_producto"], df_productos["id"])
+        )
+        prod_sel_archivo = st.selectbox(
+            "Seleccionar Producto para Ficha Técnica:",
+            list(prod_dict_inv.keys()),
+        )
+        prod_id_archivo = prod_dict_inv[prod_sel_archivo]
 
-      if st.form_submit_button("Agregar Químico al Inventario"):
+        archivo_ficha = st.file_uploader(
+            "Sube el archivo PDF de la Ficha Técnica", type=["pdf", "doc", "docx"]
+        )
+
+        if st.button("📤 Subir y Enlazar Archivo al Producto"):
+          if archivo_ficha is not None:
+            nombre_archivo = f"ficha_{prod_id_archivo}_{archivo_ficha.name}"
+            ruta_destino = os.path.join(CARPETA_FICHAS, nombre_archivo)
+
+            with open(ruta_destino, "wb") as f:
+              f.write(archivo_ficha.getbuffer())
+
+            conn = sqlite3.connect(DB_NAME)
+            cur = conn.cursor()
+            cur.execute(
+                "UPDATE productos SET ficha_tecnica = ? WHERE id = ?",
+                (nombre_archivo, prod_id_archivo),
+            )
+            conn.commit()
+            conn.close()
+            st.success(
+                f"¡Ficha técnica '{archivo_ficha.name}' cargada y enlazada con"
+                f" éxito a {prod_sel_archivo}!"
+            )
+            st.rerun()
+          else:
+            st.warning("Por favor selecciona un archivo PDF primero.")
+
+      # Procesar el formulario de registro del producto
+      if submit_prod:
         if np:
           conn = sqlite3.connect(DB_NAME)
           cur = conn.cursor()
@@ -781,11 +809,14 @@ elif modulo == "📦 Módulo de Inventario (Productos & Servicios)":
                     INSERT INTO productos (nombre_producto, categoria, stock, unidad, precio, proveedor_id, ficha_tecnica)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-              (np, cat, stk, uni, prc, prov_id_sel, ficha_tec),
+              (np, cat, stk, uni, prc, prov_id_sel, "Pendiente de archivo"),
           )
           conn.commit()
           conn.close()
-          st.success("¡Químico agregado con su ficha técnica y proveedor!")
+          st.success(
+              "¡Químico registrado con éxito! Ahora puedes cargar su archivo PDF"
+              " abajo."
+          )
           st.rerun()
         else:
           st.warning("Por favor ingresa el nombre del producto.")
@@ -948,8 +979,8 @@ elif modulo == "📅 Módulo de Gestión de Servicios (Agenda)":
         conn.commit()
         conn.close()
         st.success(
-            f"¡Servicio agendado para la Localidad ID #{inmueble_id} con"
-            f" recurrencia {rec} asignado a {tec}!"
+            f"¡Servicio agendado para la Localidad ID #{inm_id} con recurrencia"
+            f" {rec} asignado a {tec}!"
         )
         st.rerun()
 
