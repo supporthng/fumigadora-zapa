@@ -3,7 +3,7 @@ import sqlite3
 import pandas as pd
 import streamlit as st
 
-# Configuración de la página (Debe ser el primer comando de Streamlit)
+# Configuración de la página
 st.set_page_config(
     page_title="Fumigadora Zapa | ERP System", page_icon="🐛", layout="wide"
 )
@@ -16,12 +16,9 @@ DB_NAME = "fumigadora_zapa_erp.db"
 # ==========================================
 st.markdown("""
     <style>
-    /* Estilo general de fondo y tipografía */
     .stApp {
         background-color: #f8fafc;
     }
-    
-    /* Contenedor de la tarjeta de login moderna */
     .login-card {
         background: #ffffff;
         padding: 40px;
@@ -29,14 +26,10 @@ st.markdown("""
         box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
         border: 1px solid #e2e8f0;
     }
-    
-    /* Estilo para los títulos principales */
     h1, h2, h3 {
         color: #1e293b;
         font-family: 'Inter', sans-serif;
     }
-    
-    /* Botones modernos */
     .stButton>button {
         background-color: #0f172a;
         color: white;
@@ -52,8 +45,6 @@ st.markdown("""
         border: none;
         color: white;
     }
-    
-    /* Sidebar moderna */
     [data-testid="stSidebar"] {
         background-color: #ffffff;
         border-right: 1px solid #e2e8f0;
@@ -63,12 +54,13 @@ st.markdown("""
 
 
 # ==========================================
-# INICIALIZACIÓN DE LA BASE DE DATOS
+# INICIALIZACIÓN DE LA BASE DE DATOS RELACIONAL
 # ==========================================
 def inicializar_db():
   conn = sqlite3.connect(DB_NAME)
   cursor = conn.cursor()
 
+  # 1. Tabla de Usuarios y Roles
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS usuarios (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -77,18 +69,33 @@ def inicializar_db():
             pin TEXT NOT NULL
         )
     """)
+
+  # 2. Tabla Maestra de Clientes
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS clientes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             cliente TEXT NOT NULL,
             sector TEXT,
-            telefono TEXT,
-            ultimo_servicio TEXT,
-            frecuencia_dias INTEGER,
-            plaga_tratada TEXT,
-            monto_sugerido REAL
+            telefono TEXT
         )
     """)
+
+  # 3. Tabla de Inmuebles / Localidades (Vinculada por ID de Cliente)
+  cursor.execute("""
+        CREATE TABLE IF NOT EXISTS inmuebles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            cliente_id INTEGER,
+            tipo_inmueble TEXT NOT NULL,
+            detalle_ubicacion TEXT NOT NULL,
+            contacto_nombre TEXT NOT NULL,
+            contacto_telefono TEXT NOT NULL,
+            frecuencia_dias INTEGER DEFAULT 30,
+            ultimo_servicio TEXT,
+            FOREIGN KEY (cliente_id) REFERENCES clientes (id)
+        )
+    """)
+
+  # 4. Tabla de Productos y Químicos
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS productos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -99,6 +106,8 @@ def inicializar_db():
             precio REAL
         )
     """)
+
+  # 5. Tabla de Facturación e Historial Fiscal (DGII)
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS facturas (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -111,6 +120,21 @@ def inicializar_db():
             estado_pago TEXT
         )
     """)
+
+  # 6. Tabla de Servicios / Agenda (Vinculada por ID de Inmueble)
+  cursor.execute("""
+        CREATE TABLE IF NOT EXISTS servicios (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            inmueble_id INTEGER,
+            fecha_servicio TEXT NOT NULL,
+            recurrencia TEXT NOT NULL,
+            trabajo TEXT NOT NULL,
+            tecnico_asignado TEXT NOT NULL,
+            estado TEXT DEFAULT 'Programado',
+            FOREIGN KEY (inmueble_id) REFERENCES inmuebles (id)
+        )
+    """)
+
   conn.commit()
 
   # Insertar usuario admin por defecto
@@ -122,42 +146,32 @@ def inicializar_db():
   )
   conn.commit()
 
-  # Datos iniciales de clientes
+  # Datos iniciales si está vacío
   cursor.execute("SELECT COUNT(*) FROM clientes")
   if cursor.fetchone()[0] == 0:
-    cursor.executemany(
+    cursor.execute(
+        "INSERT INTO clientes (cliente, sector, telefono) VALUES (?, ?, ?)",
+        ("Frituras El Primo", "Gualey, SD", "8095551234"),
+    )
+    cliente_id = cursor.lastrowid
+
+    cursor.execute(
         """
-            INSERT INTO clientes (cliente, sector, telefono, ultimo_servicio, frecuencia_dias, plaga_tratada, monto_sugerido)
+            INSERT INTO inmuebles (cliente_id, tipo_inmueble, detalle_ubicacion, contacto_nombre, contacto_telefono, frecuencia_dias, ultimo_servicio)
             VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
-        [
-            (
-                "Frituras El Primo",
-                "Gualey, SD",
-                "8095551234",
-                (datetime.now().date() - timedelta(days=35)).strftime(
-                    "%Y-%m-%d"
-                ),
-                30,
-                "Cucarachas y Hormigas",
-                2500.0,
-            ),
-            (
-                "Colmado Doña Rosa",
-                "Ensanche Luperón",
-                "8092224321",
-                (datetime.now().date() - timedelta(days=10)).strftime(
-                    "%Y-%m-%d"
-                ),
-                60,
-                "Rodedores (Ratas)",
-                3500.0,
-            ),
-        ],
+        (
+            cliente_id,
+            "Casa",
+            "Casa #14, Manzana B",
+            "Ramón Pérez",
+            "8095551234",
+            30,
+            (datetime.now().date() - timedelta(days=35)).strftime("%Y-%m-%d"),
+        ),
     )
     conn.commit()
 
-  # Datos iniciales de productos
   cursor.execute("SELECT COUNT(*) FROM productos")
   if cursor.fetchone()[0] == 0:
     cursor.executemany(
@@ -200,13 +214,9 @@ if "autenticado" not in st.session_state:
   st.session_state.rol = ""
 
 if not st.session_state.autenticado:
-  # Diseño de centrado moderno con columnas
   _, col_centro, _ = st.columns([1, 1.2, 1])
-
   with col_centro:
     st.markdown("<br><br>", unsafe_allow_html=True)
-
-    # Tarjeta de inicio de sesión moderna
     with st.container():
       st.markdown(
           "<div style='text-align: center;'>"
@@ -217,9 +227,7 @@ if not st.session_state.autenticado:
           "</div>",
           unsafe_allow_html=True,
       )
-
       st.markdown("<br>", unsafe_allow_html=True)
-
       with st.form("login_moderno"):
         st.markdown(
             "<p style='font-weight: 600; color: #334155; margin-bottom:"
@@ -229,7 +237,6 @@ if not st.session_state.autenticado:
         usuario_input = st.text_input(
             "Usuario", value="admin", label_visibility="collapsed"
         )
-
         st.markdown(
             "<p style='font-weight: 600; color: #334155; margin-bottom:"
             " 5px; margin-top: 10px;'>Contraseña o PIN</p>",
@@ -238,7 +245,6 @@ if not st.session_state.autenticado:
         pin_input = st.text_input(
             "PIN", type="password", value="admin", label_visibility="collapsed"
         )
-
         st.markdown("<br>", unsafe_allow_html=True)
         submit_login = st.form_submit_button(
             "Iniciar Sesión", use_container_width=True
@@ -260,28 +266,31 @@ if not st.session_state.autenticado:
           " Usuario: <b>admin</b> | Contraseña: <b>admin</b></p></div>",
           unsafe_allow_html=True,
       )
-
   st.stop()
 
 
 # ==========================================
 # APLICACIÓN PRINCIPAL (POST-LOGIN)
 # ==========================================
-def cargar_datos(tabla):
+def cargar_datos(query):
   conn = sqlite3.connect(DB_NAME)
-  df = pd.read_sql_query(f"SELECT * FROM {tabla}", conn)
+  df = pd.read_sql_query(query, conn)
   conn.close()
   return df
 
 
-df_clientes = cargar_datos("clientes")
-df_clientes["ultimo_servicio"] = pd.to_datetime(
-    df_clientes["ultimo_servicio"]
-).dt.date
-df_productos = cargar_datos("productos")
+df_inmuebles = cargar_datos("""
+    SELECT i.id as inmueble_id, c.id as cliente_id, c.cliente, c.sector, c.telefono as cliente_telefono,
+           i.tipo_inmueble, i.detalle_ubicacion, i.contacto_nombre, i.contacto_telefono, 
+           i.frecuencia_dias, i.ultimo_servicio
+    FROM inmuebles i
+    JOIN clientes c ON i.cliente_id = c.id
+""")
+df_clientes_maestra = cargar_datos("SELECT * FROM clientes")
+df_productos = cargar_datos("SELECT * FROM productos")
 df_facturas = cargar_datos("facturas")
+df_usuarios = cargar_datos("usuarios")
 
-# Sidebar Profesional
 st.sidebar.markdown(
     "<h3 style='color: #0f172a; margin-bottom: 0;'>Fumigadora Zapa</h3>"
     "<p style='color: #64748b; font-size: 12px;'>Panel de Control</p>",
@@ -301,7 +310,12 @@ st.sidebar.markdown(
     unsafe_allow_html=True,
 )
 
-modulos_disponibles = ["📋 Panel, Alertas y Rutas", "📄 Certificados Sanitarios"]
+modulos_disponibles = [
+    "📋 Panel, Alertas y Rutas",
+    "➕ Registrar Localidad / Inmueble",
+    "📅 Gestión de Servicios (Agenda)",
+    "📄 Certificados Sanitarios",
+]
 if st.session_state.rol == "Administrador":
   modulos_disponibles.extend([
       "📦 Inventario de Químicos",
@@ -314,86 +328,104 @@ opcion = st.sidebar.radio(
 )
 
 hoy = datetime.now().date()
-df_clientes["proximo_servicio"] = df_clientes.apply(
-    lambda row: row["ultimo_servicio"]
-    + timedelta(days=int(row["frecuencia_dias"])),
-    axis=1,
-)
+if not df_inmuebles.empty:
+  df_inmuebles["ultimo_servicio"] = pd.to_datetime(
+      df_inmuebles["ultimo_servicio"]
+  ).dt.date
+  df_inmuebles["proximo_servicio"] = df_inmuebles.apply(
+      lambda row: row["ultimo_servicio"]
+      + timedelta(days=int(row["frecuencia_dias"])),
+      axis=1,
+  )
 
 
-def calcular_estado(prox):
-  dias_restantes = (prox - hoy).days
-  if dias_restantes < 0:
-    return "🔴 Vencido"
-  elif dias_restantes <= 5:
-    return "🟡 Toca esta semana"
-  else:
-    return "🟢 Al día"
+  def calcular_estado(prox):
+    dias_restantes = (prox - hoy).days
+    if dias_restantes < 0:
+      return "🔴 Vencido"
+    elif dias_restantes <= 5:
+      return "🟡 Toca esta semana"
+    else:
+      return "🟢 Al día"
 
 
-df_clientes["estado"] = df_clientes["proximo_servicio"].apply(calcular_estado)
+  df_inmuebles["estado"] = df_inmuebles["proximo_servicio"].apply(
+      calcular_estado
+  )
 
 
 # ==========================================
 # 1. PANEL, ALERTAS Y RUTAS
 # ==========================================
 if opcion == "📋 Panel, Alertas y Rutas":
-  st.title("Tablero Operativo")
-  st.write("Planificación de servicios y control de frecuencias de clientes.")
+  st.title("Tablero Operativo por Localidades")
+  st.write("Control de frecuencias y alertas vinculadas a cada inmueble.")
 
-  col1, col2, col3 = st.columns(3)
-  col1.metric("Total Clientes", len(df_clientes))
-  col2.metric(
-      "Servicios Vencidos",
-      len(df_clientes[df_clientes["estado"].str.contains("Vencido")]),
-  )
-  col3.metric(
-      "Por Vencer (5 días)",
-      len(df_clientes[df_clientes["estado"].str.contains("Toca")]),
-  )
-
-  st.divider()
-  sector_sel = st.selectbox(
-      "📍 Filtrar por Sector:", ["Todos"] + list(df_clientes["sector"].unique())
-  )
-  df_f = (
-      df_clientes
-      if sector_sel == "Todos"
-      else df_clientes[df_clientes["sector"] == sector_sel]
-  )
-
-  st.dataframe(
-      df_f[
-          [
-              "id",
-              "cliente",
-              "sector",
-              "telefono",
-              "ultimo_servicio",
-              "proximo_servicio",
-              "plaga_tratada",
-              "estado",
-          ]
-      ],
-      use_container_width=True,
-  )
-
-  if not df_clientes.empty:
-    st.subheader("Acción Directa sobre Cliente")
-    cli_sel = st.selectbox(
-        "Seleccione cliente:", df_clientes["cliente"].tolist()
+  if not df_inmuebles.empty:
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Total Localidades", len(df_inmuebles))
+    col2.metric(
+        "Servicios Vencidos",
+        len(df_inmuebles[df_inmuebles["estado"].str.contains("Vencido")]),
     )
-    dat_c = df_clientes[df_clientes["cliente"] == cli_sel].iloc[0]
+    col3.metric(
+        "Por Vencer (5 días)",
+        len(df_inmuebles[df_inmuebles["estado"].str.contains("Toca")]),
+    )
+
+    st.divider()
+    sector_sel = st.selectbox(
+        "📍 Filtrar por Sector:",
+        ["Todos"] + list(df_inmuebles["sector"].dropna().unique()),
+    )
+    df_f = (
+        df_inmuebles
+        if sector_sel == "Todos"
+        else df_inmuebles[df_inmuebles["sector"] == sector_sel]
+    )
+
+    st.dataframe(
+        df_f[
+            [
+                "inmueble_id",
+                "cliente",
+                "sector",
+                "tipo_inmueble",
+                "detalle_ubicacion",
+                "contacto_nombre",
+                "contacto_telefono",
+                "ultimo_servicio",
+                "proximo_servicio",
+                "estado",
+            ]
+        ],
+        use_container_width=True,
+    )
+
+    st.subheader("Acción Directa sobre Localidad (ID Único)")
+    inmueble_sel_id = st.selectbox(
+        "Seleccione ID de Localidad:", df_inmuebles["inmueble_id"].tolist()
+    )
+    dat_i = df_inmuebles[
+        df_inmuebles["inmueble_id"] == inmueble_sel_id
+    ].iloc[0]
+
+    st.info(
+        f"**Cliente:** {dat_i['cliente']} | **Localidad:**"
+        f" {dat_i['tipo_inmueble']} ({dat_i['detalle_ubicacion']}) |"
+        f" **Contacto:** {dat_i['contacto_nombre']} ({dat_i['contacto_telefono']})"
+    )
 
     c1, c2 = st.columns(2)
     with c1:
       msg = (
-          f"Hola {dat_c['cliente']}, le saludamos de Fumigadora Zapa. Su"
-          f" servicio de control de plagas toca el"
-          f" {dat_c['proximo_servicio']}. ¿Confirmamos la visita?"
+          f"Hola {dat_i['contacto_nombre']}, le saludamos de Fumigadora Zapa."
+          f" Su servicio para {dat_i['tipo_inmueble']} ({dat_i['detalle_ubicacion']})"
+          f" toca el {dat_i['proximo_servicio']}. ¿Confirmamos la visita?"
       )
       url_wa = (
-          f"https://wa.me/1{dat_c['telefono']}?text=" + msg.replace(" ", "%20")
+          f"https://wa.me/1{dat_i['contacto_telefono']}?text="
+          + msg.replace(" ", "%20")
       )
       st.markdown(
           f"📱 **WhatsApp:** [Enviar Recordatorio]({url_wa})",
@@ -404,59 +436,320 @@ if opcion == "📋 Panel, Alertas y Rutas":
         conn = sqlite3.connect(DB_NAME)
         cursor = conn.cursor()
         cursor.execute(
-            "UPDATE clientes SET ultimo_servicio = ? WHERE id = ?",
-            (hoy.strftime("%Y-%m-%d"), int(dat_c["id"])),
+            "UPDATE inmuebles SET ultimo_servicio = ? WHERE id = ?",
+            (hoy.strftime("%Y-%m-%d"), int(dat_i["inmueble_id"])),
         )
         conn.commit()
         conn.close()
         st.success(
-            f"¡Ciclo reiniciado para {cli_sel}! Fecha actualizada a hoy."
+            f"¡Ciclo reiniciado para la localidad ID {inmueble_sel_id} con fecha"
+            " de hoy!"
         )
         st.rerun()
+  else:
+    st.info("No hay localidades registradas en la base de datos.")
 
 
 # ==========================================
-# 2. CERTIFICADOS SANITARIOS
+# 2. REGISTRAR LOCALIDAD / INMUEBLE
+# ==========================================
+elif opcion == "➕ Registrar Localidad / Inmueble":
+  st.title("Gestión de Clientes y Nuevas Localidades")
+  st.write(
+      "Asocia múltiples localidades a un cliente existente o crea uno nuevo."
+  )
+
+  with st.form("form_reg_localidad"):
+    st.subheader("1. Seleccionar o Crear Cliente")
+    modo_cliente = st.radio(
+        "Acción:", ["Cliente Existente", "Registrar Cliente Nuevo"]
+    )
+
+    if modo_cliente == "Cliente Existente" and not df_clientes_maestra.empty:
+      cliente_existente = st.selectbox(
+          "Seleccione Cliente:", df_clientes_maestra["cliente"].tolist()
+      )
+      cliente_id = int(
+          df_clientes_maestra[
+              df_clientes_maestra["cliente"] == cliente_existente
+          ]["id"].values[0]
+      )
+    else:
+      nombre_nuevo = st.text_input("Nombre del Nuevo Cliente / Empresa")
+      sector_nuevo = st.text_input("Sector Principal")
+      telefono_nuevo = st.text_input("Teléfono Principal del Cliente")
+      cliente_id = None
+
+    st.markdown("---")
+    st.subheader("2. Detalle de la Localidad a Registrar")
+    tipo_inmueble = st.selectbox(
+        "Tipo de Inmueble:",
+        [
+            "Casa",
+            "Oficina / Edificio",
+            "Almacén / Nave",
+            "Cocina Industrial",
+            "Torre / Apartamento",
+        ],
+    )
+    detalle_ubicacion = st.text_input(
+        "Detalle de Ubicación (Ej: Casa #14 / Local 402 / Apto 5B)"
+    )
+    contacto_nombre = st.text_input("Persona de Contacto en esta Localidad")
+    contacto_telefono = st.text_input("Teléfono Directo de Contacto")
+    frecuencia = st.selectbox(
+        "Frecuencia Base (Días)",
+        [7, 15, 30, 60, 90, 180],
+        format_func=lambda x: (
+            "Semanal (7 días)"
+            if x == 7
+            else (
+                "Quincenal (15 días)"
+                if x == 15
+                else (
+                    "Mensual (30 días)"
+                    if x == 30
+                    else (
+                        f"Cada {int(x/30)} meses"
+                        if x >= 60
+                        else f"Cada {x} días"
+                    )
+                )
+            )
+        ),
+    )
+    ultimo_serv = st.date_input(
+        "Fecha del Último Servicio (o Inicio)", value=hoy
+    )
+
+    guardar_localidad = st.form_submit_button(
+        "Guardar Localidad con ID Único"
+    )
+
+    if guardar_localidad:
+      conn = sqlite3.connect(DB_NAME)
+      cursor = conn.cursor()
+
+      if modo_cliente == "Registrar Cliente Nuevo":
+        if nombre_nuevo and contacto_telefono:
+          cursor.execute(
+              "INSERT INTO clientes (cliente, sector, telefono) VALUES (?, ?, ?)",
+              (nombre_nuevo, sector_nuevo, telefono_nuevo),
+          )
+          cliente_id = cursor.lastrowid
+        else:
+          st.error("Por favor completa los datos del nuevo cliente.")
+          st.stop()
+
+      if cliente_id and detalle_ubicacion and contacto_nombre:
+        cursor.execute(
+            """
+                INSERT INTO inmuebles (cliente_id, tipo_inmueble, detalle_ubicacion, contacto_nombre, contacto_telefono, frecuencia_dias, ultimo_servicio)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                cliente_id,
+                tipo_inmueble,
+                detalle_ubicacion,
+                contacto_nombre,
+                contacto_telefono,
+                frecuencia,
+                ultimo_serv.strftime("%Y-%m-%d"),
+            ),
+        )
+        conn.commit()
+        conn.close()
+        st.success(
+            "¡Nueva localidad registrada con éxito! (ID Único asignado)."
+        )
+        st.rerun()
+      else:
+        st.warning("Completa los campos obligatorios de la localidad.")
+
+
+# ==========================================
+# 3. GESTIÓN DE SERVICIOS (AGENDA Y RECURRENCIA)
+# ==========================================
+elif opcion == "📅 Gestión de Servicios (Agenda)":
+  st.title("Gestión de Servicios y Agenda de Campo")
+  st.write(
+      "Agenda trabajos programando su recurrencia exacta (Semanal, Quincenal,"
+      " Mensual, etc.)."
+  )
+
+  with st.form("form_nuevo_servicio"):
+    st.subheader("Agendar Trabajo por Localidad (ID)")
+
+    if not df_inmuebles.empty:
+      opciones_inmuebles = df_inmuebles.apply(
+          lambda row: (
+              f"Localidad ID #{row['inmueble_id']} - {row['cliente']} |"
+              f" {row['tipo_inmueble']}: {row['detalle_ubicacion']}"
+          ),
+          axis=1,
+      ).tolist()
+      inmueble_seleccionado_str = st.selectbox(
+          "Seleccione Localidad:", opciones_inmuebles
+      )
+      inmueble_id_sel = int(
+          inmueble_seleccionado_str.split(" - ")[0].replace(
+              "Localidad ID #", ""
+          )
+      )
+    else:
+      inmueble_id_sel = None
+      st.warning("Primero debes registrar al menos una localidad.")
+
+    fecha_servicio = st.date_input("Fecha Programada del Servicio:", value=hoy)
+
+    # NUEVO: Selección de Recurrencia exacta solicitada
+    recurrencia_servicio = st.selectbox(
+        "Recurrencia del Servicio:",
+        [
+            "Semanal",
+            "Quincenal",
+            "Mensual",
+            "Cada 2 meses",
+            "Cada 3 meses",
+            "Cada 6 meses",
+        ],
+    )
+
+    trabajo_realizar = st.selectbox(
+        "Trabajo o Servicio a Realizar:",
+        [
+            "Fumigación General (Insectos)",
+            "Control de Roedores (Ratas/Ratones)",
+            "Desinfección y Saneamiento Ambiental",
+            "Tratamiento Preventivo Especial",
+            "Inspección y Fumigación Comercial",
+        ],
+    )
+
+    lista_tecnicos = (
+        df_usuarios["usuario"].tolist() if not df_usuarios.empty else ["admin"]
+    )
+    tecnico_asignado = st.selectbox("Técnico Asignado:", lista_tecnicos)
+
+    guardar_servicio = st.form_submit_button("Agendar Trabajo en Agenda")
+
+    if guardar_servicio and inmueble_id_sel:
+      # Mapear la recurrencia seleccionada a días para actualizar la frecuencia del inmueble automáticamente
+      dias_map = {
+          "Semanal": 7,
+          "Quincenal": 15,
+          "Mensual": 30,
+          "Cada 2 meses": 60,
+          "Cada 3 meses": 90,
+          "Cada 6 meses": 180,
+      }
+      dias_frecuencia = dias_map.get(recurrencia_servicio, 30)
+
+      conn = sqlite3.connect(DB_NAME)
+      cursor = conn.cursor()
+
+      # Registrar servicio en la agenda
+      cursor.execute(
+          """
+                INSERT INTO servicios (inmueble_id, fecha_servicio, recurrencia, trabajo, tecnico_asignado, estado)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """,
+          (
+              inmueble_id_sel,
+              fecha_servicio.strftime("%Y-%m-%d"),
+              recurrencia_servicio,
+              trabajo_realizar,
+              tecnico_asignado,
+              "Programado",
+          ),
+      )
+
+      # Actualizar automáticamente los días de frecuencia en el inmueble
+      cursor.execute(
+          "UPDATE inmuebles SET frecuencia_dias = ? WHERE id = ?",
+          (dias_frecuencia, inmueble_id_sel),
+      )
+
+      conn.commit()
+      conn.close()
+      st.success(
+          f"¡Servicio agendado con éxito para la Localidad ID #{inmueble_id_sel}"
+          f" con recurrencia **{recurrencia_servicio}**!"
+      )
+      st.rerun()
+
+  st.divider()
+  st.subheader("Historial y Agenda de Servicios Registrados")
+
+  df_servicios_actual = cargar_datos("""
+        SELECT s.id as servicio_id, s.inmueble_id, c.cliente, i.tipo_inmueble, i.detalle_ubicacion, 
+               s.fecha_servicio, s.recurrencia, s.trabajo, s.tecnico_asignado, s.estado
+        FROM servicios s
+        JOIN inmuebles i ON s.inmueble_id = i.id
+        JOIN clientes c ON i.cliente_id = c.id
+    """)
+
+  if not df_servicios_actual.empty:
+    st.dataframe(df_servicios_actual, use_container_width=True)
+  else:
+    st.info("No hay servicios agendados en la base de datos.")
+
+
+# ==========================================
+# 4. CERTIFICADOS SANITARIOS
 # ==========================================
 elif opcion == "📄 Certificados Sanitarios":
-  st.title("Certificados Sanitarios")
-  st.write(
-      "Generación y descarga de constancias oficiales de control de plagas."
-  )
-  if not df_clientes.empty:
-    cli_cert = st.selectbox(
-        "Seleccionar Cliente:", df_clientes["cliente"].tolist()
+  st.title("Certificados Sanitarios por Localidad")
+  st.write("Emisión de constancias oficiales para ubicaciones específicas.")
+
+  if not df_inmuebles.empty:
+    opciones_cert = df_inmuebles.apply(
+        lambda row: (
+            f"Localidad ID #{row['inmueble_id']} - {row['cliente']} |"
+            f" {row['tipo_inmueble']}: {row['detalle_ubicacion']}"
+        ),
+        axis=1,
+    ).tolist()
+    cert_sel_str = st.selectbox("Seleccionar Localidad:", opciones_cert)
+    inmueble_id_cert = int(
+        cert_sel_str.split(" - ")[0].replace("Localidad ID #", "")
     )
-    dat_c = df_clientes[df_clientes["cliente"] == cli_cert].iloc[0]
+
+    dat_c = df_inmuebles[
+        df_inmuebles["inmueble_id"] == inmueble_id_cert
+    ].iloc[0]
 
     cert_texto = f"""
     ==================================================
                  FUMIGADORA ZAPA
           Certificado Oficial de Control de Plagas
     ==================================================
-    Fecha: {hoy}
-    Cliente: {dat_c['cliente']}
-    Ubicación: {dat_c['sector']}
+    Localidad ID: #{dat_c['inmueble_id']}
+    Cliente Principal: {dat_c['cliente']}
+    Ubicación: {dat_c['tipo_inmueble']} - {dat_c['detalle_ubicacion']} ({dat_c['sector']})
+    Contacto en Sitio: {dat_c['contacto_nombre']} ({dat_c['contacto_telefono']})
     
     DETALLES TÉCNICOS:
-    - Plaga Controlada: {dat_c['plaga_tratada']}
-    - Próximo Servicio: {dat_c['proximo_servicio']}
+    - Fecha de Emisión: {hoy}
+    - Próximo Servicio Programado: {dat_c['proximo_servicio']}
     
     Establecimiento verificado bajo normas de salubridad.
     --------------------------------------------------
     Firma Autorizada / Sello: Fumigadora Zapa
     """
-    st.text_area("Vista Previa:", cert_texto, height=220)
+    st.text_area("Vista Previa del Certificado:", cert_texto, height=240)
     st.download_button(
         "📥 Descargar Certificado",
         data=cert_texto,
-        file_name=f"Certificado_{dat_c['cliente']}.txt",
+        file_name=f"Certificado_Localidad_{dat_c['inmueble_id']}.txt",
         mime="text/plain",
     )
+  else:
+    st.info("No hay localidades disponibles para generar certificados.")
 
 
 # ==========================================
-# 3. INVENTARIO DE QUÍMICOS (Solo Admin)
+# 5. INVENTARIO DE QUÍMICOS (Solo Admin)
 # ==========================================
 elif opcion == "📦 Inventario de Químicos":
   st.title("Inventario de Químicos")
@@ -488,16 +781,20 @@ elif opcion == "📦 Inventario de Químicos":
 
 
 # ==========================================
-# 4. FACTURACIÓN Y COMPROBANTES DGII (Solo Admin)
+# 6. FACTURACIÓN Y COMPROBANTES DGII (Solo Admin)
 # ==========================================
 elif opcion == "💵 Facturación y Comprobantes (DGII)":
   st.title("Módulo de Facturación y Comprobantes Fiscales")
   st.write("Emisión de facturas y control de NCF / e-CF.")
 
+  clientes_lista = (
+      df_inmuebles["cliente"].unique().tolist()
+      if not df_inmuebles.empty
+      else ["Cliente General"]
+  )
+
   with st.form("form_factura"):
-    cli_fac = st.selectbox(
-        "Cliente a Facturar:", df_clientes["cliente"].tolist()
-    )
+    cli_fac = st.selectbox("Cliente a Facturar:", clientes_lista)
     ncf = st.selectbox(
         "Tipo de Comprobante Fiscal:",
         [
@@ -548,20 +845,22 @@ elif opcion == "💵 Facturación y Comprobantes (DGII)":
 
   st.divider()
   st.subheader("Historial de Facturas Emitidas")
-  if not df_facturas.empty:
-    st.dataframe(df_facturas, use_container_width=True)
+  df_facturas_actual = cargar_datos("SELECT * FROM facturas")
+  if not df_facturas_actual.empty:
+    st.dataframe(df_facturas_actual, use_container_width=True)
   else:
     st.info("No hay facturas registradas todavía.")
 
 
 # ==========================================
-# 5. GESTIÓN DE USUARIOS (Solo Admin)
+# 7. GESTIÓN DE USUARIOS (Solo Admin)
 # ==========================================
 elif opcion == "👥 Gestión de Usuarios":
   st.title("Gestión de Usuarios y Accesos")
   st.write("Administración de roles, permisos y credenciales.")
   st.dataframe(
-      cargar_datos("usuarios")[["id", "usuario", "rol"]], use_container_width=True
+      cargar_datos("SELECT id, usuario, rol FROM usuarios"),
+      use_container_width=True,
   )
 
   with st.form("nuevo_usuario"):
