@@ -83,7 +83,18 @@ def inicializar_db():
         )
     """)
 
-  # 3. Clientes e Inmuebles (Localidades)
+  # 3. NUEVA TABLA: Proveedores
+  cursor.execute("""
+        CREATE TABLE IF NOT EXISTS proveedores (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nombre_proveedor TEXT NOT NULL,
+            contacto TEXT,
+            telefono TEXT,
+            email TEXT
+        )
+    """)
+
+  # 4. Clientes e Inmuebles (Localidades)
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS clientes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -106,7 +117,7 @@ def inicializar_db():
         )
     """)
 
-  # 4. Inventario: Productos y Catálogo de Servicios
+  # 5. Inventario: Productos (Con proveedor_id y ficha_tecnica) y Catálogo de Servicios
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS productos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -114,7 +125,10 @@ def inicializar_db():
             categoria TEXT,
             stock INTEGER,
             unidad TEXT,
-            precio REAL
+            precio REAL,
+            proveedor_id INTEGER,
+            ficha_tecnica TEXT,
+            FOREIGN KEY (proveedor_id) REFERENCES proveedores (id)
         )
     """)
   cursor.execute("""
@@ -126,7 +140,7 @@ def inicializar_db():
         )
     """)
 
-  # 5. Cotizaciones
+  # 6. Cotizaciones
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS cotizaciones (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -138,7 +152,7 @@ def inicializar_db():
         )
     """)
 
-  # 6. Gestión de Servicios (Agenda)
+  # 7. Gestión de Servicios (Agenda)
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS servicios_agenda (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -152,7 +166,7 @@ def inicializar_db():
         )
     """)
 
-  # 7. Facturación (DGII)
+  # 8. Facturación (DGII)
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS facturas (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -173,6 +187,30 @@ def inicializar_db():
       "INSERT OR IGNORE INTO usuarios (usuario, rol, pin) VALUES ('admin',"
       " 'Administrador', 'admin')"
   )
+
+  cursor.execute("SELECT COUNT(*) FROM proveedores")
+  if cursor.fetchone()[0] == 0:
+    cursor.executemany(
+        """
+            INSERT INTO proveedores (nombre_proveedor, contacto, telefono, email)
+            VALUES (?, ?, ?, ?)
+        """,
+        [
+            (
+                "Químicos del Caribe S.R.L.",
+                "Lic. Alberto Sosa",
+                "8096881122",
+                "ventas@quimicoscaribe.do",
+            ),
+            (
+                "Distribuidora Agroindustrial",
+                "Mariana Ruiz",
+                "8095334455",
+                "mruiz@agroindustrial.do",
+            ),
+        ],
+    )
+    conn.commit()
 
   cursor.execute("SELECT COUNT(*) FROM tecnicos")
   if cursor.fetchone()[0] == 0:
@@ -252,12 +290,28 @@ def inicializar_db():
   if cursor.fetchone()[0] == 0:
     cursor.executemany(
         """
-            INSERT INTO productos (nombre_producto, categoria, stock, unidad, precio)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO productos (nombre_producto, categoria, stock, unidad, precio, proveedor_id, ficha_tecnica)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
         [
-            ("Cyperkill", "Insecticida", 15, "Litros", 850.0),
-            ("Brodifacoum", "Rodenticida", 25, "Kilos", 450.0),
+            (
+                "Cyperkill",
+                "Insecticida",
+                15,
+                "Litros",
+                850.0,
+                1,
+                "https://ejemplo.com/fichas/cyperkill.pdf",
+            ),
+            (
+                "Brodifacoum",
+                "Rodenticida",
+                25,
+                "Kilos",
+                450.0,
+                2,
+                "Ficha técnica en archivo local / PDF 02",
+            ),
         ],
     )
 
@@ -351,7 +405,13 @@ df_inmuebles = cargar_datos("""
 """)
 df_clientes = cargar_datos("clientes")
 df_tecnicos = cargar_datos("tecnicos")
-df_productos = cargar_datos("productos")
+df_proveedores = cargar_datos("proveedores")
+df_productos = cargar_datos("""
+    SELECT p.id, p.nombre_producto, p.categoria, p.stock, p.unidad, p.precio, 
+           COALESCE(pr.nombre_proveedor, 'Sin Proveedor') as proveedor, p.ficha_tecnica
+    FROM productos p
+    LEFT JOIN proveedores pr ON p.proveedor_id = pr.id
+""")
 df_servicios_cat = cargar_datos("catalogo_servicios")
 df_cotizaciones = cargar_datos("cotizaciones")
 df_facturas = cargar_datos("facturas")
@@ -386,6 +446,7 @@ modulo = st.sidebar.radio(
         "📋 Panel Operativo y Alertas",
         "👥 Módulo de Clientes",
         "👷 Módulo de Técnicos",
+        "🏭 Módulo de Proveedores",
         "📦 Módulo de Inventario (Productos & Servicios)",
         "📄 Módulo de Cotización",
         "📅 Módulo de Gestión de Servicios (Agenda)",
@@ -594,13 +655,55 @@ elif modulo == "👷 Módulo de Técnicos":
 
 
 # ==========================================
-# 4. MÓDULO DE INVENTARIO (PRODUCTOS & SERVICIOS)
+# 4. MÓDULO DE PROVEEDORES
+# ==========================================
+elif modulo == "🏭 Módulo de Proveedores":
+  st.title("🏭 Módulo de Proveedores")
+  st.write(
+      "Gestión de proveedores de químicos, cebos, equipos y materiales."
+  )
+
+  tab_prov1, tab_prov2 = st.tabs(["Registrar Proveedor", "Directorio de Proveedores"])
+
+  with tab_prov1:
+    with st.form("form_reg_prov"):
+      st.subheader("Datos del Proveedor")
+      nom_prov = st.text_input("Nombre de la Empresa Proveedora")
+      cont_prov = st.text_input("Persona de Contacto")
+      tel_prov = st.text_input("Teléfono de Contacto")
+      email_prov = st.text_input("Correo Electrónico")
+
+      if st.form_submit_button("Guardar Proveedor"):
+        if nom_prov:
+          conn = sqlite3.connect(DB_NAME)
+          cur = conn.cursor()
+          cur.execute(
+              """
+                    INSERT INTO proveedores (nombre_proveedor, contacto, telefono, email)
+                    VALUES (?, ?, ?, ?)
+                """,
+              (nom_prov, cont_prov, tel_prov, email_prov),
+          )
+          conn.commit()
+          conn.close()
+          st.success(f"¡Proveedor {nom_prov} registrado con éxito!")
+          st.rerun()
+        else:
+          st.warning("Por favor ingresa el nombre del proveedor.")
+
+  with tab_prov2:
+    st.subheader("Listado de Proveedores Registrados")
+    st.dataframe(df_proveedores, use_container_width=True)
+
+
+# ==========================================
+# 5. MÓDULO DE INVENTARIO (PRODUCTOS & SERVICIOS)
 # ==========================================
 elif modulo == "📦 Módulo de Inventario (Productos & Servicios)":
   st.title("📦 Módulo de Inventario")
   st.write(
-      "Control de químicos/productos y catálogo de servicios ofrecidos por la"
-      " empresa."
+      "Control de químicos, fichas técnicas enlazadas a proveedores y catálogo de"
+      " servicios."
   )
 
   tab_prod, tab_serv = st.tabs(
@@ -609,9 +712,24 @@ elif modulo == "📦 Módulo de Inventario (Productos & Servicios)":
 
   with tab_prod:
     st.subheader("Inventario de Químicos y Materiales")
-    st.dataframe(df_productos, use_container_width=True)
+    st.dataframe(
+        df_productos[
+            [
+                "id",
+                "nombre_producto",
+                "categoria",
+                "stock",
+                "unidad",
+                "precio",
+                "proveedor",
+                "ficha_tecnica",
+            ]
+        ],
+        use_container_width=True,
+    )
 
     with st.form("form_prod"):
+      st.subheader("Registrar Químico / Producto con Ficha Técnica")
       np = st.text_input("Nombre del Químico (Ej: Deltametrina)")
       cat = st.selectbox(
           "Categoría", ["Insecticida", "Rodenticida", "Cebo", "Equipo"]
@@ -620,18 +738,48 @@ elif modulo == "📦 Módulo de Inventario (Productos & Servicios)":
       uni = st.selectbox("Unidad", ["Litros", "Kilos", "Tubos", "Galones"])
       prc = st.number_input("Precio Estimado (RD$)", min_value=0.0, value=500.0)
 
-      if st.form_submit_button("Agregar Químico"):
-        conn = sqlite3.connect(DB_NAME)
-        cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO productos (nombre_producto, categoria, stock, unidad,"
-            " precio) VALUES (?, ?, ?, ?, ?)",
-            (np, cat, stk, uni, prc),
+      # Selección de proveedor enlazado
+      prov_dict = (
+          dict(
+              zip(
+                  df_proveedores["nombre_proveedor"],
+                  df_proveedores["id"],
+              )
+          )
+          if not df_proveedores.empty
+          else {}
+      )
+      if prov_dict:
+        prov_sel = st.selectbox(
+            "Proveedor Asociado:", list(prov_dict.keys())
         )
-        conn.commit()
-        conn.close()
-        st.success("¡Químico agregado!")
-        st.rerun()
+        prov_id_sel = prov_dict[prov_sel]
+      else:
+        prov_id_sel = None
+        st.warning("No hay proveedores registrados.")
+
+      # Campo para la Ficha Técnica (enlace, ruta o texto descriptivo)
+      ficha_tec = st.text_input(
+          "Ficha Técnica (URL del PDF, enlace web o ruta de documento)"
+      )
+
+      if st.form_submit_button("Agregar Químico al Inventario"):
+        if np:
+          conn = sqlite3.connect(DB_NAME)
+          cur = conn.cursor()
+          cur.execute(
+              """
+                    INSERT INTO productos (nombre_producto, categoria, stock, unidad, precio, proveedor_id, ficha_tecnica)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+              (np, cat, stk, uni, prc, prov_id_sel, ficha_tec),
+          )
+          conn.commit()
+          conn.close()
+          st.success("¡Químico agregado con su ficha técnica y proveedor!")
+          st.rerun()
+        else:
+          st.warning("Por favor ingresa el nombre del producto.")
 
   with tab_serv:
     st.subheader("Catálogo de Servicios de Fumigación")
@@ -657,7 +805,7 @@ elif modulo == "📦 Módulo de Inventario (Productos & Servicios)":
 
 
 # ==========================================
-# 5. MÓDULO DE COTIZACIÓN
+# 6. MÓDULO DE COTIZACIÓN
 # ==========================================
 elif modulo == "📄 Módulo de Cotización":
   st.title("📄 Módulo de Cotización")
@@ -711,7 +859,7 @@ elif modulo == "📄 Módulo de Cotización":
 
 
 # ==========================================
-# 6. MÓDULO DE GESTIÓN DE SERVICIOS (AGENDA)
+# 7. MÓDULO DE GESTIÓN DE SERVICIOS (AGENDA)
 # ==========================================
 elif modulo == "📅 Módulo de Gestión de Servicios (Agenda)":
   st.title("📅 Gestión de Servicios (Agenda)")
@@ -791,8 +939,8 @@ elif modulo == "📅 Módulo de Gestión de Servicios (Agenda)":
         conn.commit()
         conn.close()
         st.success(
-            f"¡Servicio agendado para la Localidad ID #{inmueble_id} con"
-            f" recurrencia {rec} asignado a {tec}!"
+            f"¡Servicio agendado para la Localidad ID #{inm_id} con recurrencia"
+            f" {rec} asignado a {tec}!"
         )
         st.rerun()
 
@@ -809,7 +957,7 @@ elif modulo == "📅 Módulo de Gestión de Servicios (Agenda)":
 
 
 # ==========================================
-# 7. MÓDULO DE FACTURACIÓN (DGII)
+# 8. MÓDULO DE FACTURACIÓN (DGII)
 # ==========================================
 elif modulo == "💵 Módulo de Facturación (DGII)":
   st.title("💵 Módulo de Facturación y Comprobantes Fiscales")
@@ -871,7 +1019,7 @@ elif modulo == "💵 Módulo de Facturación (DGII)":
 
 
 # ==========================================
-# 8. MÓDULO DE CONFIGURACIÓN (USUARIOS & DATOS)
+# 9. MÓDULO DE CONFIGURACIÓN (USUARIOS & DATOS)
 # ==========================================
 elif modulo == "⚙️ Módulo de Configuración (Usuarios & Datos)":
   st.title("⚙️ Configuración, Gestión de Usuarios y Datos Masivos")
@@ -884,9 +1032,7 @@ elif modulo == "⚙️ Módulo de Configuración (Usuarios & Datos)":
   )
 
   with tab_cfg1:
-    st.subheader(
-        "📥 Importación Masiva de Datos (Excel / CSV)"
-    )
+    st.subheader("📥 Importación Masiva de Datos (Excel / CSV)")
     st.write(
         "Sube un archivo Excel para alimentar automáticamente las tablas del"
         " sistema."
@@ -896,6 +1042,7 @@ elif modulo == "⚙️ Módulo de Configuración (Usuarios & Datos)":
         "Seleccione la tabla de destino:",
         [
             "Clientes",
+            "Proveedores",
             "Productos / Inventario",
             "Catálogo de Servicios",
             "Técnicos",
@@ -921,18 +1068,18 @@ elif modulo == "⚙️ Módulo de Configuración (Usuarios & Datos)":
           conn = sqlite3.connect(DB_NAME)
 
           if tipo_destino == "Clientes":
-            # Espera columnas: cliente, sector, telefono
             df_subido.to_sql("clientes", conn, if_exists="append", index=False)
+          elif tipo_destino == "Proveedores":
+            df_subido.to_sql(
+                "proveedores", conn, if_exists="append", index=False
+            )
           elif tipo_destino == "Productos / Inventario":
-            # Espera columnas: nombre_producto, categoria, stock, unidad, precio
             df_subido.to_sql("productos", conn, if_exists="append", index=False)
           elif tipo_destino == "Catálogo de Servicios":
-            # Espera columnas: nombre_servicio, descripcion, precio_base
             df_subido.to_sql(
                 "catalogo_servicios", conn, if_exists="append", index=False
             )
           elif tipo_destino == "Técnicos":
-            # Espera columnas: nombre_tecnico, telefono, especialidad, zona, estado
             df_subido.to_sql("tecnicos", conn, if_exists="append", index=False)
 
           conn.close()
