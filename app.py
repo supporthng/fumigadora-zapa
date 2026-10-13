@@ -60,7 +60,6 @@ def inicializar_db():
   conn = sqlite3.connect(DB_NAME)
   cursor = conn.cursor()
 
-  # 1. Tabla de Usuarios y Roles
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS usuarios (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -69,8 +68,6 @@ def inicializar_db():
             pin TEXT NOT NULL
         )
     """)
-
-  # 2. Tabla Maestra de Clientes
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS clientes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -79,8 +76,6 @@ def inicializar_db():
             telefono TEXT
         )
     """)
-
-  # 3. Tabla de Inmuebles / Localidades (Vinculada por ID de Cliente)
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS inmuebles (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -94,8 +89,6 @@ def inicializar_db():
             FOREIGN KEY (cliente_id) REFERENCES clientes (id)
         )
     """)
-
-  # 4. Tabla de Productos y Químicos
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS productos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -106,8 +99,6 @@ def inicializar_db():
             precio REAL
         )
     """)
-
-  # 5. Tabla de Facturación e Historial Fiscal (DGII)
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS facturas (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -120,8 +111,6 @@ def inicializar_db():
             estado_pago TEXT
         )
     """)
-
-  # 6. Tabla de Servicios / Agenda (Vinculada por ID de Inmueble)
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS servicios (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -272,8 +261,17 @@ if not st.session_state.autenticado:
 # ==========================================
 # APLICACIÓN PRINCIPAL (POST-LOGIN)
 # ==========================================
-def cargar_datos(query):
+def cargar_datos(sql_o_tabla):
   conn = sqlite3.connect(DB_NAME)
+  # Si le pasamos solo el nombre de una tabla, armamos el SELECT automáticamente
+  if (
+      " " not in sql_o_tabla.strip()
+      and ";" not in sql_o_tabla
+      and "SELECT" not in sql_o_tabla.upper()
+  ):
+    query = f"SELECT * FROM {sql_o_tabla}"
+  else:
+    query = sql_o_tabla
   df = pd.read_sql_query(query, conn)
   conn.close()
   return df
@@ -286,8 +284,8 @@ df_inmuebles = cargar_datos("""
     FROM inmuebles i
     JOIN clientes c ON i.cliente_id = c.id
 """)
-df_clientes_maestra = cargar_datos("SELECT * FROM clientes")
-df_productos = cargar_datos("SELECT * FROM productos")
+df_clientes_maestra = cargar_datos("clientes")
+df_productos = cargar_datos("productos")
 df_facturas = cargar_datos("facturas")
 df_usuarios = cargar_datos("usuarios")
 
@@ -601,8 +599,6 @@ elif opcion == "📅 Gestión de Servicios (Agenda)":
       st.warning("Primero debes registrar al menos una localidad.")
 
     fecha_servicio = st.date_input("Fecha Programada del Servicio:", value=hoy)
-
-    # NUEVO: Selección de Recurrencia exacta solicitada
     recurrencia_servicio = st.selectbox(
         "Recurrencia del Servicio:",
         [
@@ -614,7 +610,6 @@ elif opcion == "📅 Gestión de Servicios (Agenda)":
             "Cada 6 meses",
         ],
     )
-
     trabajo_realizar = st.selectbox(
         "Trabajo o Servicio a Realizar:",
         [
@@ -634,7 +629,6 @@ elif opcion == "📅 Gestión de Servicios (Agenda)":
     guardar_servicio = st.form_submit_button("Agendar Trabajo en Agenda")
 
     if guardar_servicio and inmueble_id_sel:
-      # Mapear la recurrencia seleccionada a días para actualizar la frecuencia del inmueble automáticamente
       dias_map = {
           "Semanal": 7,
           "Quincenal": 15,
@@ -647,8 +641,6 @@ elif opcion == "📅 Gestión de Servicios (Agenda)":
 
       conn = sqlite3.connect(DB_NAME)
       cursor = conn.cursor()
-
-      # Registrar servicio en la agenda
       cursor.execute(
           """
                 INSERT INTO servicios (inmueble_id, fecha_servicio, recurrencia, trabajo, tecnico_asignado, estado)
@@ -663,13 +655,10 @@ elif opcion == "📅 Gestión de Servicios (Agenda)":
               "Programado",
           ),
       )
-
-      # Actualizar automáticamente los días de frecuencia en el inmueble
       cursor.execute(
           "UPDATE inmuebles SET frecuencia_dias = ? WHERE id = ?",
           (dias_frecuencia, inmueble_id_sel),
       )
-
       conn.commit()
       conn.close()
       st.success(
@@ -845,7 +834,7 @@ elif opcion == "💵 Facturación y Comprobantes (DGII)":
 
   st.divider()
   st.subheader("Historial de Facturas Emitidas")
-  df_facturas_actual = cargar_datos("SELECT * FROM facturas")
+  df_facturas_actual = cargar_datos("facturas")
   if not df_facturas_actual.empty:
     st.dataframe(df_facturas_actual, use_container_width=True)
   else:
